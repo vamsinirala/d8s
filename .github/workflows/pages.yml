@@ -42,6 +42,8 @@ jobs:
           cp site/robots.txt _site/robots.txt
           cp site/sitemap.xml _site/sitemap.xml
           cp site/llms.txt _site/llms.txt
+          # Google Search Console verification file — must be served verbatim at the site root
+          cp site/google*.html _site/
           cp web/public/favicon.svg _site/favicon.svg
           cp docs/screenshots/*.png _site/screenshots/
           cp -R web/dist/. _site/demo/
