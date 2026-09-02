@@ -6,14 +6,16 @@
 
   --text: #111827;
   --text-secondary: #4b5563;
-  --text-muted: #9aa2b1;
+  /* Darkened from #9aa2b1 (2.57:1) to meet WCAG AA 4.5:1 — 4.97:1 on --surface */
+  --text-muted: #667085;
 
   --primary: #4f46e5;
   --primary-hover: #4338ca;
   --primary-soft: #eef1ff;
   --primary-soft-text: #4338ca;
 
-  --success: #12a150;
+  /* Darkened from #12a150 (3.37:1 with white text) to meet WCAG AA — now 5.43:1 */
+  --success: #0b7a3e;
   --success-soft: #e8f9ee;
   --success-text: #067a3c;
 
@@ -331,8 +333,8 @@ tbody tr:last-child td {
 }
 
 .images-btn:hover:not(:disabled) {
-  background: #0d8a45;
-  border-color: #0d8a45;
+  background: #096632;
+  border-color: #096632;
 }
 
 /* ---------- Status badges ---------- */
