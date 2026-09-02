@@ -39,12 +39,10 @@ NODE_ENV=production node server/dist/index.js
 EOF
 chmod +x "$STAGE/start.sh"
 
-cat > "$STAGE/start.cmd" <<'EOF'
-@echo off
-cd /d "%~dp0"
-set NODE_ENV=production
-node server\dist\index.js
-EOF
+# Batch files conventionally use CRLF; cmd.exe can misparse LF-only scripts in
+# some cases, so write the Windows launcher with explicit CRLF line endings.
+printf '@echo off\r\ncd /d "%%~dp0"\r\nset NODE_ENV=production\r\nnode server\\dist\\index.js\r\n' \
+  > "$STAGE/start.cmd"
 
 cat > "$STAGE/README.txt" <<'EOF'
 D8s - compare Kubernetes resources across environments
