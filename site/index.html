@@ -1,0 +1,212 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>D8s — Compare Kubernetes resources across environments</title>
+    <meta
+      name="description"
+      content="Compare Deployments, ConfigMaps, Secrets and more across Kubernetes clusters and namespaces. Spot config drift between dev, staging and prod."
+    />
+    <link rel="icon" type="image/svg+xml" href="favicon.svg" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap"
+      rel="stylesheet"
+    />
+    <style>
+      :root {
+        --bg: #f6f7fb;
+        --surface: #ffffff;
+        --border: #e5e7eb;
+        --text: #111827;
+        --text-secondary: #4b5563;
+        --text-muted: #9aa2b1;
+        --primary: #4f46e5;
+        --primary-hover: #4338ca;
+        --primary-soft: #eef1ff;
+        --radius: 14px;
+        --shadow: 0 4px 16px rgba(16, 24, 40, 0.07), 0 1px 2px rgba(16, 24, 40, 0.05);
+        --sans: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        --mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--text);
+        font-family: var(--sans);
+        -webkit-font-smoothing: antialiased;
+        line-height: 1.6;
+      }
+      .wrap { max-width: 1080px; margin: 0 auto; padding: 0 1.5rem; }
+      a { color: var(--primary); }
+
+      header { padding: 4.5rem 0 3rem; text-align: center; }
+      .logo {
+        display: inline-flex; align-items: center; justify-content: center;
+        width: 64px; height: 64px; border-radius: 16px;
+        background: linear-gradient(135deg, var(--primary), #7c3aed);
+        color: #fff; font-weight: 700; font-size: 1.4rem;
+        box-shadow: var(--shadow); margin-bottom: 1.25rem;
+      }
+      h1 { font-size: 2.75rem; margin: 0 0 .5rem; letter-spacing: -.03em; }
+      .tagline { font-size: 1.15rem; color: var(--text-secondary); margin: 0 auto 2rem; max-width: 620px; }
+      .cta { display: flex; gap: .75rem; justify-content: center; flex-wrap: wrap; }
+      .btn {
+        display: inline-block; padding: .7rem 1.4rem; border-radius: 8px;
+        font-weight: 600; text-decoration: none; font-size: .95rem;
+        border: 1px solid var(--primary); transition: background .15s ease;
+      }
+      .btn-primary { background: var(--primary); color: #fff; }
+      .btn-primary:hover { background: var(--primary-hover); }
+      .btn-secondary { background: var(--surface); color: var(--primary); }
+      .btn-secondary:hover { background: var(--primary-soft); }
+
+      section { padding: 2.5rem 0; }
+      h2 { font-size: 1.5rem; letter-spacing: -.02em; margin: 0 0 1.5rem; }
+
+      .features { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 1.25rem; }
+      .card {
+        background: var(--surface); border: 1px solid var(--border);
+        border-radius: var(--radius); padding: 1.4rem; box-shadow: var(--shadow);
+      }
+      .card h3 { margin: 0 0 .4rem; font-size: 1rem; }
+      .card p { margin: 0; color: var(--text-secondary); font-size: .92rem; }
+
+      figure { margin: 0 0 2.5rem; }
+      figure img {
+        width: 100%; border-radius: var(--radius);
+        border: 1px solid var(--border); box-shadow: var(--shadow); display: block;
+      }
+      figcaption { color: var(--text-muted); font-size: .88rem; margin-top: .7rem; text-align: center; }
+
+      pre {
+        background: #1e1e2e; color: #e4e4ef; padding: 1.1rem 1.3rem;
+        border-radius: var(--radius); overflow-x: auto;
+        font-family: var(--mono); font-size: .85rem; line-height: 1.7;
+      }
+      pre .c { color: #8b8ba7; }
+
+      .note {
+        background: var(--primary-soft); border: 1px solid rgba(79,70,229,.2);
+        border-radius: var(--radius); padding: 1rem 1.2rem; font-size: .92rem;
+        color: var(--text-secondary);
+      }
+
+      footer {
+        text-align: center; padding: 3rem 0 4rem; color: var(--text-muted);
+        font-size: .88rem; border-top: 1px solid var(--border); margin-top: 2rem;
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <div class="wrap">
+        <div class="logo">D8</div>
+        <h1>D8s</h1>
+        <p class="tagline">
+          Compare Kubernetes resources across environments. Find the config drift
+          between dev, staging and prod before it finds you.
+        </p>
+        <div class="cta">
+          <a class="btn btn-primary" href="demo/">Try the live demo</a>
+          <a class="btn btn-secondary" href="https://github.com/vamsinirala/d8s">View on GitHub</a>
+        </div>
+      </div>
+    </header>
+
+    <section class="wrap">
+      <h2>What it does</h2>
+      <div class="features">
+        <div class="card">
+          <h3>Multi-environment comparison</h3>
+          <p>
+            Pick any set of environments — any mix of clusters and namespaces — and see
+            what's present, what's missing, and how many fields differ for every
+            resource kind.
+          </p>
+        </div>
+        <div class="card">
+          <h3>Field-level diff</h3>
+          <p>
+            Drill into any resource for a path-by-path comparison, filtered by probes,
+            resource limits, env vars, volumes, images or config data.
+          </p>
+        </div>
+        <div class="card">
+          <h3>Image version drift</h3>
+          <p>
+            One table showing every deployment's image tag across environments, so
+            version drift is obvious without opening a single resource.
+          </p>
+        </div>
+        <div class="card">
+          <h3>Deployment bundles</h3>
+          <p>
+            See everything a deployment references and everything referencing it back —
+            including dangling references pointing at resources that don't exist.
+          </p>
+        </div>
+        <div class="card">
+          <h3>Secrets stay secret</h3>
+          <p>
+            Secret values are hashed server-side before they reach the browser. You can
+            tell that two secrets differ; you never see their contents.
+          </p>
+        </div>
+        <div class="card">
+          <h3>Runs entirely local</h3>
+          <p>
+            Uses your existing kubeconfig and auth plugins. Nothing is uploaded
+            anywhere — there's no backend service and no account.
+          </p>
+        </div>
+      </div>
+    </section>
+
+    <section class="wrap">
+      <h2>See it</h2>
+      <figure>
+        <img src="screenshots/comparison.png" alt="Comparison overview showing resources across dev and prod" />
+        <figcaption>Resource-by-resource presence and diff counts across environments</figcaption>
+      </figure>
+      <figure>
+        <img src="screenshots/field-diff.png" alt="Field-level diff showing differing paths side by side" />
+        <figcaption>Field-level diff — every differing path, side by side</figcaption>
+      </figure>
+      <figure>
+        <img src="screenshots/image-versions.png" alt="Image versions table across environments" />
+        <figcaption>Image versions across environments in a single table</figcaption>
+      </figure>
+      <figure>
+        <img src="screenshots/deployment-bundle.png" alt="Deployment bundle showing uses and used-by references" />
+        <figcaption>What a deployment uses, what uses it, and what's dangling</figcaption>
+      </figure>
+    </section>
+
+    <section class="wrap">
+      <h2>Get started</h2>
+      <pre><span class="c"># Download the latest release bundle, then:</span>
+tar -xzf d8s-&lt;version&gt;.tgz
+cd d8s-&lt;version&gt;
+./start.sh          <span class="c"># start.cmd on Windows</span></pre>
+      <p style="color: var(--text-secondary); font-size: .92rem;">
+        Needs Node.js 20+ and a working kubeconfig. Or run from source:
+        <code style="font-family: var(--mono); font-size: .85rem;">npm install &amp;&amp; npm run dev</code>.
+      </p>
+      <div class="note">
+        <strong>Note:</strong> D8s runs on your machine, not here. The demo above uses
+        sample data so you can explore the interface — the real tool needs local access
+        to your kubeconfig and clusters.
+      </div>
+    </section>
+
+    <footer>
+      <div class="wrap">
+        <a href="https://github.com/vamsinirala/d8s">github.com/vamsinirala/d8s</a>
+      </div>
+    </footer>
+  </body>
+</html>

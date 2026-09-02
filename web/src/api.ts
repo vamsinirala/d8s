@@ -97,6 +97,8 @@ export interface ImageVersionsResponse {
   rows: ImageVersionRow[];
 }
 
+import { IS_DEMO, demoApi } from "./demo";
+
 async function json<T>(res: Response): Promise<T> {
   if (!res.ok) {
     const body = await res.text();
@@ -105,7 +107,7 @@ async function json<T>(res: Response): Promise<T> {
   return res.json() as Promise<T>;
 }
 
-export const api = {
+const realApi = {
   listContexts: () => fetch("/api/contexts").then((r) => json<ContextInfo[]>(r)),
   listNamespaces: (context: string) =>
     fetch(`/api/contexts/${encodeURIComponent(context)}/namespaces`).then((r) =>
@@ -147,3 +149,6 @@ export const api = {
       body: JSON.stringify({ environmentIds }),
     }).then((r) => json<ImageVersionsResponse>(r)),
 };
+
+/** In the GitHub Pages demo build, swap the whole API surface for in-memory data. */
+export const api = IS_DEMO ? demoApi : realApi;

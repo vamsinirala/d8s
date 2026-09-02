@@ -97,6 +97,21 @@ h1 {
   font-size: 0.92rem;
 }
 
+.demo-banner {
+  background: var(--primary-soft);
+  color: var(--primary-soft-text);
+  border: 1px solid rgba(79, 70, 229, 0.25);
+  border-radius: var(--radius-md);
+  padding: 0.7rem 1rem;
+  margin-bottom: 1.25rem;
+  font-size: 0.86rem;
+}
+
+.demo-banner a {
+  color: inherit;
+  font-weight: 600;
+}
+
 /* ---------- Layout / cards ---------- */
 
 .card {

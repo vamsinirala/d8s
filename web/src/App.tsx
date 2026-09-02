@@ -14,6 +14,7 @@ import {
   type ResourceCompareResponse,
   type ResourceKind,
 } from "./api";
+import { IS_DEMO } from "./demo";
 import "./App.css";
 
 const KIND_LABELS: Record<ResourceKind, string> = {
@@ -219,6 +220,14 @@ export default function App() {
           <p className="subtitle">Compare Kubernetes resources across environments</p>
         </div>
       </header>
+
+      {IS_DEMO && (
+        <div className="demo-banner">
+          <strong>Demo mode</strong> — sample data, no cluster connected. Everything is
+          clickable; nothing leaves your browser.{" "}
+          <a href="https://github.com/vamsinirala/d8s">Get the real thing on GitHub</a>
+        </div>
+      )}
 
       {error && <div className="error">{error}</div>}
 
