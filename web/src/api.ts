@@ -53,10 +53,15 @@ export interface FieldCell {
   value: unknown;
 }
 
+/** identical = same everywhere; value = set everywhere but values disagree;
+ *  presence = set in some environments and absent from others. */
+export type DiffKind = "identical" | "value" | "presence";
+
 export interface FieldMatrixRow {
   path: string;
   cells: Record<string, FieldCell>;
   differs: boolean;
+  diffKind: DiffKind;
 }
 
 export interface ResourceCompareResponse {

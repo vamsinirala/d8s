@@ -30,6 +30,15 @@ const KIND_LABELS: Record<ResourceKind, string> = {
   hpas: "HorizontalPodAutoscalers",
 };
 
+type DiffFilter = "all" | "differences" | "value" | "presence";
+
+const DIFF_FILTERS: { key: DiffFilter; label: string }[] = [
+  { key: "all", label: "All" },
+  { key: "differences", label: "Differences" },
+  { key: "value", label: "Value differs" },
+  { key: "presence", label: "Missing in some" },
+];
+
 const CATEGORY_FILTERS: [string, RegExp][] = [
   ["Probes", /\.(livenessProbe|readinessProbe|startupProbe)\./],
   ["Resources/Limits", /\.resources\b/],
@@ -527,18 +536,40 @@ function FieldMatrixView({
   const [viewMode, setViewMode] = useState<"table" | "yaml">("table");
   const [yamlLeftEnv, setYamlLeftEnv] = useState<string>("");
   const [yamlRightEnv, setYamlRightEnv] = useState<string>("");
+  const [diffFilter, setDiffFilter] = useState<DiffFilter>("all");
+  const [search, setSearch] = useState("");
 
   const availableFilters = useMemo(() => {
     if (!data) return [];
     return CATEGORY_FILTERS.filter(([, re]) => data.rows.some((r) => re.test(r.path)));
   }, [data]);
 
+  /** Counts for the diff-kind filter, always over the full row set so the numbers
+   *  don't shift as other filters are applied. */
+  const diffCounts = useMemo(() => {
+    const rows = data?.rows ?? [];
+    return {
+      all: rows.length,
+      differences: rows.filter((r) => r.differs).length,
+      value: rows.filter((r) => r.diffKind === "value").length,
+      presence: rows.filter((r) => r.diffKind === "presence").length,
+    };
+  }, [data]);
+
+  // Category, difference kind and search all narrow the list together.
   const visibleRows = useMemo(() => {
     if (!data) return [];
-    const filterEntry = CATEGORY_FILTERS.find(([name]) => name === activeFilter);
-    if (!filterEntry) return data.rows;
-    return data.rows.filter((r) => filterEntry[1].test(r.path));
-  }, [data, activeFilter]);
+    const category = CATEGORY_FILTERS.find(([name]) => name === activeFilter);
+    const needle = search.trim().toLowerCase();
+    return data.rows.filter((r) => {
+      if (category && !category[1].test(r.path)) return false;
+      if (diffFilter === "differences" && !r.differs) return false;
+      if (diffFilter === "value" && r.diffKind !== "value") return false;
+      if (diffFilter === "presence" && r.diffKind !== "presence") return false;
+      if (needle && !r.path.toLowerCase().includes(needle)) return false;
+      return true;
+    });
+  }, [data, activeFilter, diffFilter, search]);
 
   useEffect(() => {
     if (!data) return;
@@ -579,25 +610,55 @@ function FieldMatrixView({
         />
       ) : (
         <>
-      {availableFilters.length > 0 && (
+      <div className="filter-bar">
         <div className="filter-row">
-          <button
-            className={activeFilter === null ? "tab active" : "tab"}
-            onClick={() => onSetFilter(null)}
-          >
-            All ({data.rows.length})
-          </button>
-          {availableFilters.map(([name, re]) => (
+          {DIFF_FILTERS.map(({ key, label }) => (
             <button
-              key={name}
-              className={activeFilter === name ? "tab active" : "tab"}
-              onClick={() => onSetFilter(name)}
+              key={key}
+              className={diffFilter === key ? "tab active" : "tab"}
+              onClick={() => setDiffFilter(key)}
             >
-              {name} ({data.rows.filter((r) => re.test(r.path)).length})
+              {label} ({diffCounts[key]})
             </button>
           ))}
         </div>
-      )}
+
+        {availableFilters.length > 0 && (
+          <div className="filter-row">
+            <button
+              className={activeFilter === null ? "tab active" : "tab"}
+              onClick={() => onSetFilter(null)}
+            >
+              All fields
+            </button>
+            {availableFilters.map(([name, re]) => (
+              <button
+                key={name}
+                className={activeFilter === name ? "tab active" : "tab"}
+                onClick={() => onSetFilter(name)}
+              >
+                {name} ({data.rows.filter((r) => re.test(r.path)).length})
+              </button>
+            ))}
+          </div>
+        )}
+
+        <input
+          type="search"
+          className="path-search"
+          placeholder="Filter paths…"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          aria-label="Filter fields by path"
+        />
+      </div>
+
+      <div className="diff-legend">
+        <span><i className="swatch swatch-value" /> Value differs</span>
+        <span><i className="swatch swatch-presence" /> Missing in some environments</span>
+        <span><i className="swatch swatch-identical" /> Identical</span>
+      </div>
+
       <div className="field-matrix-scroll">
         <table className="field-table">
           <thead>
@@ -610,7 +671,7 @@ function FieldMatrixView({
           </thead>
           <tbody>
             {visibleRows.map((row: FieldMatrixRow) => (
-              <tr key={row.path} className={row.differs ? "differs" : ""}>
+              <tr key={row.path} className={`diff-${row.diffKind}`}>
                 <td className="path-cell">{renderPath(row.path)}</td>
                 {envs.map((e) => {
                   const cell = row.cells[e.id];
@@ -628,6 +689,9 @@ function FieldMatrixView({
             ))}
           </tbody>
         </table>
+        {visibleRows.length === 0 && (
+          <p className="empty no-matches">No fields match the current filters.</p>
+        )}
       </div>
       </>
       )}

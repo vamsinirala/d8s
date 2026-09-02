@@ -198,10 +198,23 @@ export interface FieldCell {
   value: unknown;
 }
 
+/**
+ * How a field differs across environments:
+ * - `identical`  — set in every environment, same value everywhere
+ * - `value`      — set in every environment, but the values disagree
+ * - `presence`   — set in some environments and absent from others
+ *
+ * When a field is both absent somewhere AND has disagreeing values among the
+ * environments that do have it, `presence` wins: a missing field is the more
+ * structural finding, and it's what you usually want to act on first.
+ */
+export type DiffKind = "identical" | "value" | "presence";
+
 export interface FieldMatrixRow {
   path: string;
   cells: Record<string, FieldCell>;
   differs: boolean;
+  diffKind: DiffKind;
 }
 
 /** Pivots one matched resource's per-env normalized bodies into rows = field path, columns = env. */
@@ -227,8 +240,10 @@ export function buildFieldMatrix(
       cells[envId] = { present, value: present ? flattenedByEnv[envId][path] : undefined };
       if (present) presentValues.push(JSON.stringify(flattenedByEnv[envId][path]));
     }
-    const differs = presentValues.length !== envIds.length || new Set(presentValues).size > 1;
-    rows.push({ path, cells, differs });
+    const missingSomewhere = presentValues.length !== envIds.length;
+    const valuesDisagree = new Set(presentValues).size > 1;
+    const diffKind: DiffKind = missingSomewhere ? "presence" : valuesDisagree ? "value" : "identical";
+    rows.push({ path, cells, differs: diffKind !== "identical", diffKind });
   }
   return rows;
 }

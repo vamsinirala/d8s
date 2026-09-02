@@ -12,6 +12,8 @@ import type {
   ContextInfo,
   DeploymentBundle,
   Environment,
+  FieldCell,
+  FieldMatrixRow,
   ImageVersionsResponse,
   OverviewResponse,
   ResourceCompareResponse,
@@ -135,10 +137,21 @@ function buildOverview(ids: string[]): OverviewResponse {
   };
 }
 
-function cell(value: unknown) {
+function cell(value: unknown): FieldCell {
   return { present: true, value };
 }
-const absent = { present: false, value: undefined };
+const absent: FieldCell = { present: false, value: undefined };
+
+/** Mirrors buildFieldMatrix() in server/src/diff/engine.ts so demo rows classify
+ *  exactly the way real ones do. */
+function row(path: string, cells: Record<string, FieldCell>): FieldMatrixRow {
+  const all = Object.values(cells);
+  const presentValues = all.filter((c) => c.present).map((c) => JSON.stringify(c.value));
+  const missingSomewhere = presentValues.length !== all.length;
+  const valuesDisagree = new Set(presentValues).size > 1;
+  const diffKind = missingSomewhere ? "presence" : valuesDisagree ? "value" : "identical";
+  return { path, cells, diffKind, differs: diffKind !== "identical" };
+}
 
 function buildResourceCompare(ids: string[], canonicalName: string): ResourceCompareResponse {
   const [a, b] = [ids[0], ids[1] ?? ids[0]];
@@ -148,50 +161,26 @@ function buildResourceCompare(ids: string[], canonicalName: string): ResourceCom
   const rows =
     canonicalName === "payments-api"
       ? [
-          { path: "metadata.name", cells: { [a]: cell("payments-api"), [b]: cell("payments-api") }, differs: false },
-          {
-            path: "metadata.namespace",
-            cells: { [a]: cell("payments-dev"), [b]: cell("payments-prod") },
-            differs: true,
-          },
-          { path: "spec.replicas", cells: { [a]: cell(1), [b]: cell(3) }, differs: true },
-          {
-            path: `${p}.image`,
-            cells: {
-              [a]: cell("registry.example.com/payments-api:a1b2c3d"),
-              [b]: cell("registry.example.com/payments-api:f9e8d7c"),
-            },
-            differs: true,
-          },
-          {
-            path: `${p}.env.DB_HOST.valueFrom.secretKeyRef.name`,
-            cells: { [a]: cell("payments-db-secret-dev"), [b]: absent },
-            differs: true,
-          },
-          {
-            path: `${p}.resources.limits.cpu`,
-            cells: { [a]: absent, [b]: cell("500m") },
-            differs: true,
-          },
-          {
-            path: `${p}.resources.limits.memory`,
-            cells: { [a]: absent, [b]: cell("512Mi") },
-            differs: true,
-          },
-          {
-            path: `${p}.livenessProbe.initialDelaySeconds`,
-            cells: { [a]: cell(5), [b]: cell(30) },
-            differs: true,
-          },
-          {
-            path: `${p}.imagePullPolicy`,
-            cells: { [a]: cell("IfNotPresent"), [b]: cell("IfNotPresent") },
-            differs: false,
-          },
+          row("metadata.name", { [a]: cell("payments-api"), [b]: cell("payments-api") }),
+          row("metadata.namespace", { [a]: cell("payments-dev"), [b]: cell("payments-prod") }),
+          row("spec.replicas", { [a]: cell(1), [b]: cell(3) }),
+          row(`${p}.image`, {
+            [a]: cell("registry.example.com/payments-api:a1b2c3d"),
+            [b]: cell("registry.example.com/payments-api:f9e8d7c"),
+          }),
+          row(`${p}.env.DB_HOST.valueFrom.secretKeyRef.name`, {
+            [a]: cell("payments-db-secret-dev"),
+            [b]: absent,
+          }),
+          row(`${p}.resources.limits.cpu`, { [a]: absent, [b]: cell("500m") }),
+          row(`${p}.resources.limits.memory`, { [a]: absent, [b]: cell("512Mi") }),
+          row(`${p}.livenessProbe.initialDelaySeconds`, { [a]: cell(5), [b]: cell(30) }),
+          row(`${p}.livenessProbe.periodSeconds`, { [a]: cell(10), [b]: cell(10) }),
+          row(`${p}.imagePullPolicy`, { [a]: cell("IfNotPresent"), [b]: cell("IfNotPresent") }),
         ]
       : [
-          { path: "metadata.name", cells: { [a]: cell(canonicalName), [b]: cell(canonicalName) }, differs: false },
-          { path: "spec.replicas", cells: { [a]: cell(1), [b]: cell(1) }, differs: false },
+          row("metadata.name", { [a]: cell(canonicalName), [b]: cell(canonicalName) }),
+          row("spec.replicas", { [a]: cell(1), [b]: cell(1) }),
         ];
 
   return {

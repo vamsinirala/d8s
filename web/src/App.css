@@ -26,7 +26,14 @@
 
   --warning-soft: #fff6e5;
   --warning-text: #92620a;
+  /* "value differs" rows */
   --warning-row: #fffaf0;
+  --warning-border: #e0a640;
+  /* "missing in some environments" rows — deliberately a different hue family
+     from the amber above so the two are distinguishable, including for
+     red-green colour blindness */
+  --presence-row: #f2f6fd;
+  --presence-border: #6b8fd4;
 
   --neutral-soft: #eef0f4;
   --neutral-text: #4b5563;
@@ -526,8 +533,87 @@ td.missing {
   max-width: 360px;
 }
 
-tr.differs {
+/* Two distinct, subtle tints so the kind of difference is readable at a glance.
+ * Amber vs. slate-blue rather than amber vs. red: the pair stays distinguishable
+ * under red-green colour blindness, and the legend plus the "—" marker mean
+ * colour is never the only signal. */
+tr.diff-value {
   background: var(--warning-row);
+}
+
+tr.diff-presence {
+  background: var(--presence-row);
+}
+
+tr.diff-value td:first-child {
+  box-shadow: inset 3px 0 0 var(--warning-border);
+}
+
+tr.diff-presence td:first-child {
+  box-shadow: inset 3px 0 0 var(--presence-border);
+}
+
+.diff-legend {
+  display: flex;
+  gap: 1.1rem;
+  flex-wrap: wrap;
+  align-items: center;
+  margin-bottom: 0.75rem;
+  font-size: 0.78rem;
+  color: var(--text-secondary);
+}
+
+.diff-legend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.swatch {
+  width: 22px;
+  height: 12px;
+  border-radius: 3px;
+  border: 1px solid var(--border);
+  display: inline-block;
+}
+
+.swatch-value {
+  background: var(--warning-row);
+  border-left: 3px solid var(--warning-border);
+}
+
+.swatch-presence {
+  background: var(--presence-row);
+  border-left: 3px solid var(--presence-border);
+}
+
+.swatch-identical {
+  background: var(--surface);
+}
+
+.filter-bar {
+  display: flex;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+  align-items: center;
+  margin-bottom: 0.85rem;
+}
+
+.filter-bar .filter-row {
+  margin-bottom: 0;
+}
+
+.path-search {
+  flex: 1 1 190px;
+  min-width: 150px;
+  max-width: 300px;
+  font-size: 0.82rem;
+  padding: 0.4rem 0.7rem;
+}
+
+.no-matches {
+  padding: 1rem;
+  margin: 0;
 }
 
 .field-table code {
