@@ -39,6 +39,9 @@ jobs:
         run: |
           mkdir -p _site/demo _site/screenshots
           cp site/index.html _site/index.html
+          cp site/robots.txt _site/robots.txt
+          cp site/sitemap.xml _site/sitemap.xml
+          cp site/llms.txt _site/llms.txt
           cp web/public/favicon.svg _site/favicon.svg
           cp docs/screenshots/*.png _site/screenshots/
           cp -R web/dist/. _site/demo/

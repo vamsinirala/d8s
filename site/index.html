@@ -3,12 +3,109 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>D8s — Compare Kubernetes resources across environments</title>
+    <title>D8s — Compare Kubernetes Resources Across Environments | Config Drift Tool</title>
     <meta
       name="description"
-      content="Compare Deployments, ConfigMaps, Secrets and more across Kubernetes clusters and namespaces. Spot config drift between dev, staging and prod."
+      content="Free open-source tool to compare Kubernetes resources across clusters and namespaces. Diff Deployments, ConfigMaps, Secrets, Services and image versions between dev, staging and prod to find config drift. Runs locally with your kubeconfig."
     />
+    <link rel="canonical" href="https://vamsinirala.github.io/d8s/" />
+    <meta name="author" content="vamsinirala" />
+    <meta name="theme-color" content="#4f46e5" />
+
+    <!-- Open Graph / social + link previews -->
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content="https://vamsinirala.github.io/d8s/" />
+    <meta property="og:site_name" content="D8s" />
+    <meta property="og:title" content="D8s — Compare Kubernetes Resources Across Environments" />
+    <meta
+      property="og:description"
+      content="Open-source tool to diff Deployments, ConfigMaps, Secrets and image versions across Kubernetes clusters and namespaces. Find config drift between dev, staging and prod."
+    />
+    <meta property="og:image" content="https://vamsinirala.github.io/d8s/screenshots/comparison.png" />
+    <meta property="og:image:alt" content="D8s comparing Kubernetes resources between a dev and prod environment" />
+
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="D8s — Compare Kubernetes Resources Across Environments" />
+    <meta
+      name="twitter:description"
+      content="Open-source tool to diff Kubernetes resources across clusters and namespaces. Find config drift between dev, staging and prod."
+    />
+    <meta name="twitter:image" content="https://vamsinirala.github.io/d8s/screenshots/comparison.png" />
+
     <link rel="icon" type="image/svg+xml" href="favicon.svg" />
+
+    <!-- Structured data: helps Google rich results and gives AI crawlers clean facts -->
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@type": "SoftwareApplication",
+        "name": "D8s",
+        "alternateName": "D8s Kubernetes diff tool",
+        "applicationCategory": "DeveloperApplication",
+        "applicationSubCategory": "Kubernetes tooling",
+        "operatingSystem": "macOS, Linux, Windows",
+        "url": "https://vamsinirala.github.io/d8s/",
+        "downloadUrl": "https://github.com/vamsinirala/d8s/releases",
+        "codeRepository": "https://github.com/vamsinirala/d8s",
+        "programmingLanguage": ["TypeScript", "JavaScript"],
+        "runtimePlatform": "Node.js 20+",
+        "isAccessibleForFree": true,
+        "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" },
+        "description": "D8s is an open-source tool that compares Kubernetes resources across multiple environments. It diffs Deployments, ConfigMaps, Secrets, Services, Ingresses, PodDisruptionBudgets and HorizontalPodAutoscalers between any mix of clusters and namespaces, reports container image version drift, and maps which resources a Deployment references and which reference it back. It runs locally against your own kubeconfig; secret values are hashed server-side and never sent to the browser.",
+        "featureList": [
+          "Compare Kubernetes resources across multiple clusters and namespaces",
+          "Field-level diff of Deployments, ConfigMaps, Secrets and Services",
+          "Container image version drift report across environments",
+          "Deployment reference graph showing uses and used-by relationships",
+          "Dangling reference detection for missing ConfigMaps and Secrets",
+          "Side-by-side YAML diff",
+          "Secret values hashed, never exposed in plaintext"
+        ],
+        "author": { "@type": "Person", "name": "vamsinirala" },
+        "license": "https://github.com/vamsinirala/d8s"
+      }
+    </script>
+
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@type": "FAQPage",
+        "mainEntity": [
+          {
+            "@type": "Question",
+            "name": "How do you compare Kubernetes configs between dev, staging and prod?",
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": "D8s lets you define each environment as a kubeconfig context plus a namespace, then compares resources across all of them at once. It shows which resources exist in each environment, how many fields differ, and a path-by-path diff of the differences, including probes, resource limits, environment variables, volumes and image tags."
+            }
+          },
+          {
+            "@type": "Question",
+            "name": "How do you find Kubernetes configuration drift between environments?",
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": "Configuration drift shows up as fields that differ between environments that should match, such as missing CPU or memory limits in one environment, different container image tags, or a ConfigMap that exists in staging but not production. D8s surfaces all of these in a single comparison view, with a dedicated report for container image version drift."
+            }
+          },
+          {
+            "@type": "Question",
+            "name": "Is D8s free and open source?",
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": "Yes. D8s is free and open source, available at github.com/vamsinirala/d8s. It runs locally on your own machine using your existing kubeconfig, with no account, no hosted service and no data leaving your environment."
+            }
+          },
+          {
+            "@type": "Question",
+            "name": "Does D8s expose Kubernetes secret values?",
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": "No. Secret values are hashed server-side before reaching the browser. You can see that a secret differs between two environments, or that a key is missing, without ever seeing the secret contents."
+            }
+          }
+        ]
+      }
+    </script>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
@@ -94,6 +191,11 @@
         border-radius: var(--radius); padding: 1rem 1.2rem; font-size: .92rem;
         color: var(--text-secondary);
       }
+
+      .faq h3 { font-size: 1rem; margin: 1.6rem 0 .3rem; }
+      .faq h3:first-child { margin-top: 0; }
+      .faq p { margin: 0; color: var(--text-secondary); font-size: .95rem; }
+      .faq code { font-family: var(--mono); font-size: .85rem; background: #eceef4; padding: .1rem .35rem; border-radius: 4px; }
 
       footer {
         text-align: center; padding: 3rem 0 4rem; color: var(--text-muted);
@@ -200,6 +302,51 @@ cd d8s-&lt;version&gt;
         <strong>Note:</strong> D8s runs on your machine, not here. The demo above uses
         sample data so you can explore the interface — the real tool needs local access
         to your kubeconfig and clusters.
+      </div>
+    </section>
+
+    <section class="wrap">
+      <h2>FAQ</h2>
+      <div class="faq">
+        <h3>How do you compare Kubernetes configs between dev, staging and prod?</h3>
+        <p>
+          Define each environment as a kubeconfig context plus a namespace, then compare
+          them all at once. D8s shows which resources exist where, how many fields differ,
+          and a path-by-path diff covering probes, resource limits, environment variables,
+          volumes and image tags.
+        </p>
+
+        <h3>How do you find Kubernetes configuration drift between environments?</h3>
+        <p>
+          Drift shows up as fields that differ where they shouldn't — missing CPU or memory
+          limits in one environment, mismatched container image tags, or a ConfigMap that
+          exists in staging but not production. D8s surfaces all of these in one view, with
+          a dedicated report for image version drift.
+        </p>
+
+        <h3>Is D8s free and open source?</h3>
+        <p>
+          Yes — free and open source at
+          <a href="https://github.com/vamsinirala/d8s">github.com/vamsinirala/d8s</a>. It runs
+          locally using your existing kubeconfig. No account, no hosted service, no data
+          leaving your environment.
+        </p>
+
+        <h3>Does D8s expose Kubernetes secret values?</h3>
+        <p>
+          No. Secret values are hashed server-side before reaching the browser. You can see
+          that a secret differs between environments, or that a key is missing, without ever
+          seeing its contents.
+        </p>
+
+        <h3>What does D8s work with?</h3>
+        <p>
+          Any Kubernetes cluster reachable from your kubeconfig — EKS, GKE, AKS, or
+          self-managed — including exec-based auth plugins like <code>aws eks get-token</code>
+          and <code>kubelogin</code>. It compares Deployments, StatefulSets, DaemonSets,
+          ConfigMaps, Secrets, Services, PersistentVolumeClaims, Ingresses,
+          PodDisruptionBudgets and HorizontalPodAutoscalers.
+        </p>
       </div>
     </section>
 

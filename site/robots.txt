@@ -1,0 +1,30 @@
+User-agent: *
+Allow: /
+
+# AI crawlers are explicitly welcome — this is an open-source project and we want
+# it to be discoverable through AI assistants as well as search engines.
+User-agent: GPTBot
+Allow: /
+
+User-agent: OAI-SearchBot
+Allow: /
+
+User-agent: ChatGPT-User
+Allow: /
+
+User-agent: ClaudeBot
+Allow: /
+
+User-agent: Claude-User
+Allow: /
+
+User-agent: PerplexityBot
+Allow: /
+
+User-agent: Google-Extended
+Allow: /
+
+User-agent: Applebot-Extended
+Allow: /
+
+Sitemap: https://vamsinirala.github.io/d8s/sitemap.xml

@@ -1,0 +1,110 @@
+# D8s
+
+> Open-source tool for comparing Kubernetes resources across multiple environments.
+> It diffs Deployments, ConfigMaps, Secrets, Services and more between any mix of
+> clusters and namespaces, so you can find configuration drift between dev, staging
+> and production. Runs locally against your own kubeconfig — no hosted service, no
+> account, no data leaves your machine.
+
+- Homepage: https://vamsinirala.github.io/d8s/
+- Live demo (sample data, no install): https://vamsinirala.github.io/d8s/demo/
+- Source: https://github.com/vamsinirala/d8s
+- Downloads: https://github.com/vamsinirala/d8s/releases
+- License: open source, free
+- Requirements: Node.js 20+ and a working kubeconfig
+
+## What problem it solves
+
+Teams running the same application across several Kubernetes environments routinely
+drift apart: production gets CPU and memory limits that staging never received, a
+ConfigMap key is added in dev and forgotten everywhere else, an image tag lags a
+release behind, or a Deployment references a Secret that no longer exists. These
+differences are hard to see with `kubectl` alone because you end up diffing large
+YAML documents by hand, one resource and one environment pair at a time.
+
+D8s makes the comparison direct: define your environments once, then see every
+resource across all of them side by side, with the specific fields that differ.
+
+## Core concept
+
+An **environment** is a `(kubeconfig context, namespace)` pair. That covers
+dev/staging/prod as separate namespaces in one cluster, as entirely separate
+clusters, or any mix of the two. Comparisons work across N environments at once,
+not just two.
+
+## Features
+
+- **Multi-environment comparison** — for every resource kind, shows what exists in
+  which environment and how many fields differ.
+- **Field-level diff** — path-by-path comparison of a single resource across
+  environments, filterable by probes, resource limits, environment variables,
+  volumes, images and config data.
+- **Image version drift report** — one table of every Deployment's container image
+  tag across environments, distinguishing "versions differ" from "only deployed in
+  one environment".
+- **Deployment bundle view** — for a chosen Deployment, resolves everything it
+  references (ConfigMaps, Secrets, PersistentVolumeClaims, ServiceAccount,
+  PriorityClass) and everything referencing it back (Services, Ingresses,
+  PodDisruptionBudgets, HorizontalPodAutoscalers), matched by label selector or
+  scaleTargetRef. Flags dangling references pointing at resources that do not exist.
+- **Side-by-side YAML diff** — the same comparison rendered in a Monaco diff editor.
+- **Secret safety** — Secret values are hashed server-side before reaching the
+  browser. You can tell that two Secrets differ, or that a key is missing, without
+  ever seeing the contents.
+
+## Resource kinds compared
+
+Deployments, StatefulSets, DaemonSets, ConfigMaps, Secrets, Services,
+PersistentVolumeClaims, Ingresses, PodDisruptionBudgets, HorizontalPodAutoscalers.
+
+## How resource matching works
+
+Resources are matched across environments by name. Names that embed the environment
+(for example `payments-dev-app` versus `payments-prod-app`) are recognised as the
+same logical resource via label-token stripping. An identical name appearing in two
+environments always wins as an exact match before any stripping is applied.
+
+Normalization removes fields that would otherwise produce false differences:
+`status`, `managedFields`, `resourceVersion`, `uid`, `creationTimestamp`, and
+rollout annotations such as `kubectl.kubernetes.io/restartedAt`. Containers,
+environment variables, ports and volume mounts are keyed by name rather than array
+position, so reordering is not reported as a difference.
+
+## Compatibility
+
+Works with any cluster reachable from your kubeconfig — Amazon EKS, Google GKE,
+Azure AKS, or self-managed — including exec-based auth plugins such as
+`aws eks get-token` and `kubelogin`. D8s invokes whatever your kubeconfig already
+specifies; it does not implement cluster authentication itself.
+
+## Install and run
+
+Download a release bundle, extract, and run:
+
+```
+tar -xzf d8s-<version>.tgz
+cd d8s-<version>
+./start.sh          # start.cmd on Windows
+```
+
+Or from source: `npm install && npm run dev`.
+
+The release bundle contains the built application plus all runtime dependencies as
+pure JavaScript, so a single archive runs on macOS, Linux and Windows. Only Node.js
+20+ is required on the target machine.
+
+## Architecture
+
+A Fastify API server plus a React frontend. The server reads the local kubeconfig,
+fetches live resources through the Kubernetes API, normalizes them, and computes
+diffs. The frontend renders comparisons. Nothing is persisted to a database;
+configured environments are stored in `~/.d8s/environments.json` on the local
+machine.
+
+## Comparable tools
+
+Related tools in this space include helm-diff and helm-drift (Helm release drift),
+kubediff and kube-compare (cluster versus reference config), and Monokle (manifest
+IDE). D8s differs by focusing on N-way comparison across arbitrary
+cluster/namespace environments with field-level output, rather than pairwise or
+Helm-release-scoped comparison.
