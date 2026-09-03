@@ -87,7 +87,7 @@ app.get<{ Params: { id: string } }>("/api/environments/:id/deployments", async (
   const env = envs.find((e) => e.id === req.params.id);
   if (!env) return reply.code(404).send({ error: "environment not found" });
 
-  const raw = await fetchNamespaceSnapshot(env.context, env.namespace);
+  const raw = await fetchNamespaceSnapshot(env.context, env.namespace, ["deployments"]);
   return raw.deployments.map((d) => d.metadata?.name).filter((n): n is string => Boolean(n));
 });
 
@@ -98,7 +98,12 @@ app.get<{ Params: { id: string; name: string } }>(
     const env = envs.find((e) => e.id === req.params.id);
     if (!env) return reply.code(404).send({ error: "environment not found" });
 
-    const raw = await fetchNamespaceSnapshot(env.context, env.namespace);
+    // The bundle needs the deployment itself, the kinds it can reference
+    // (for dangling detection) and the kinds that can reference it back.
+    // StatefulSets and DaemonSets play no part, so skip them.
+    const raw = await fetchNamespaceSnapshot(env.context, env.namespace, [
+      "deployments", "configMaps", "secrets", "pvcs", "services", "ingresses", "pdbs", "hpas",
+    ]);
     const deployment = raw.deployments.find((d) => d.metadata?.name === req.params.name);
     if (!deployment) return reply.code(404).send({ error: "deployment not found" });
 
@@ -135,9 +140,13 @@ interface EnvFetchResult {
   error?: string;
 }
 
-async function fetchSnapshotsSettled(envs: Environment[]): Promise<EnvFetchResult[]> {
+/** Fetches each environment's snapshot, limited to the kinds the caller needs. */
+async function fetchSnapshotsSettled(
+  envs: Environment[],
+  kinds: readonly ResourceKind[] = RESOURCE_KINDS,
+): Promise<EnvFetchResult[]> {
   const settled = await Promise.allSettled(
-    envs.map((env) => getNormalizedSnapshot(env.context, env.namespace)),
+    envs.map((env) => getNormalizedSnapshot(env.context, env.namespace, kinds)),
   );
   return settled.map((result, i) => {
     const env = envs[i];
@@ -177,7 +186,8 @@ app.post<{ Body: { environmentIds: string[] } }>("/api/compare/images", async (r
   const envs = await resolveEnvironments(req.body?.environmentIds, reply);
   if (!envs) return;
 
-  const results = await fetchSnapshotsSettled(envs);
+  // Only deployments are needed for the image-version report.
+  const results = await fetchSnapshotsSettled(envs, ["deployments"]);
   const ok = results.filter((r) => r.status === "ok");
 
   const matched = matchAcrossEnvironments(
@@ -206,7 +216,8 @@ app.post<{ Body: { environmentIds: string[]; kind: ResourceKind; canonicalName: 
     const envs = await resolveEnvironments(req.body?.environmentIds, reply);
     if (!envs) return;
 
-    const results = await fetchSnapshotsSettled(envs);
+    // Drilling into one resource only needs that resource's kind.
+    const results = await fetchSnapshotsSettled(envs, [kind]);
 
     const resourcesByEnv: Record<string, Record<string, unknown> | undefined> = {};
     for (const r of results) {

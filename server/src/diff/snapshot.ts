@@ -22,8 +22,9 @@ export type NormalizedSnapshot = Record<ResourceKind, Record<string, unknown>[]>
 export async function getNormalizedSnapshot(
   context: string,
   namespace: string,
+  kinds: readonly ResourceKind[] = RESOURCE_KINDS,
 ): Promise<NormalizedSnapshot> {
-  const raw = await fetchNamespaceSnapshot(context, namespace);
+  const raw = await fetchNamespaceSnapshot(context, namespace, kinds);
   return {
     deployments: raw.deployments.map(normalizeResource),
     statefulSets: raw.statefulSets.map(normalizeResource),

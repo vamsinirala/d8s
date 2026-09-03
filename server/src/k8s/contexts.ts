@@ -1,4 +1,5 @@
-import { KubeConfig, CoreV1Api, type ApiConstructor, type ApiType } from "@kubernetes/client-node";
+import { KubeConfig, CoreV1Api } from "@kubernetes/client-node";
+import { apiClientFor } from "./clients.js";
 
 export interface ContextInfo {
   name: string;
@@ -22,10 +23,7 @@ export function listContexts(): ContextInfo[] {
 }
 
 function coreApiForContext(contextName: string): CoreV1Api {
-  const kc = new KubeConfig();
-  kc.loadFromDefault();
-  kc.setCurrentContext(contextName);
-  return kc.makeApiClient(CoreV1Api);
+  return apiClientFor(contextName, CoreV1Api);
 }
 
 export async function listNamespaces(contextName: string): Promise<string[]> {
@@ -37,12 +35,4 @@ export async function listNamespaces(contextName: string): Promise<string[]> {
     .sort();
 }
 
-export function apiClientFor<T extends ApiType>(
-  contextName: string,
-  apiClientType: ApiConstructor<T>,
-): T {
-  const kc = new KubeConfig();
-  kc.loadFromDefault();
-  kc.setCurrentContext(contextName);
-  return kc.makeApiClient(apiClientType);
-}
+export { apiClientFor } from "./clients.js";

@@ -1,5 +1,4 @@
 import {
-  KubeConfig,
   AppsV1Api,
   CoreV1Api,
   NetworkingV1Api,
@@ -16,6 +15,7 @@ import {
   type V1PodDisruptionBudget,
   type V2HorizontalPodAutoscaler,
 } from "@kubernetes/client-node";
+import { apiClientFor } from "./clients.js";
 
 export interface NamespaceSnapshot {
   deployments: V1Deployment[];
@@ -30,59 +30,68 @@ export interface NamespaceSnapshot {
   hpas: V2HorizontalPodAutoscaler[];
 }
 
+export const RESOURCE_KINDS = [
+  "deployments",
+  "statefulSets",
+  "daemonSets",
+  "configMaps",
+  "secrets",
+  "services",
+  "pvcs",
+  "ingresses",
+  "pdbs",
+  "hpas",
+] as const;
+
+export type ResourceKind = (typeof RESOURCE_KINDS)[number];
+
 function clientsFor(contextName: string) {
-  const kc = new KubeConfig();
-  kc.loadFromDefault();
-  kc.setCurrentContext(contextName);
   return {
-    apps: kc.makeApiClient(AppsV1Api),
-    core: kc.makeApiClient(CoreV1Api),
-    networking: kc.makeApiClient(NetworkingV1Api),
-    policy: kc.makeApiClient(PolicyV1Api),
-    autoscaling: kc.makeApiClient(AutoscalingV2Api),
+    apps: apiClientFor(contextName, AppsV1Api),
+    core: apiClientFor(contextName, CoreV1Api),
+    networking: apiClientFor(contextName, NetworkingV1Api),
+    policy: apiClientFor(contextName, PolicyV1Api),
+    autoscaling: apiClientFor(contextName, AutoscalingV2Api),
   };
 }
 
+/**
+ * Fetches the requested resource kinds from one namespace, concurrently.
+ *
+ * Callers pass only the kinds they actually use: the image-version report needs
+ * deployments alone, and a single-resource drill-down needs one kind. Fetching
+ * all ten regardless meant nine wasted API round-trips per environment, each of
+ * which also had to authenticate.
+ *
+ * Kinds that aren't requested come back as empty arrays, so the shape of the
+ * result is stable and callers don't have to handle undefined.
+ */
 export async function fetchNamespaceSnapshot(
   contextName: string,
   namespace: string,
+  kinds: readonly ResourceKind[] = RESOURCE_KINDS,
 ): Promise<NamespaceSnapshot> {
+  const wanted = new Set(kinds);
   const { apps, core, networking, policy, autoscaling } = clientsFor(contextName);
 
-  const [
-    deploymentList,
-    statefulSetList,
-    daemonSetList,
-    configMapList,
-    secretList,
-    serviceList,
-    pvcList,
-    ingressList,
-    pdbList,
-    hpaList,
-  ] = await Promise.all([
-    apps.listNamespacedDeployment({ namespace }),
-    apps.listNamespacedStatefulSet({ namespace }),
-    apps.listNamespacedDaemonSet({ namespace }),
-    core.listNamespacedConfigMap({ namespace }),
-    core.listNamespacedSecret({ namespace }),
-    core.listNamespacedService({ namespace }),
-    core.listNamespacedPersistentVolumeClaim({ namespace }),
-    networking.listNamespacedIngress({ namespace }),
-    policy.listNamespacedPodDisruptionBudget({ namespace }),
-    autoscaling.listNamespacedHorizontalPodAutoscaler({ namespace }),
-  ]);
-
-  return {
-    deployments: deploymentList.items,
-    statefulSets: statefulSetList.items,
-    daemonSets: daemonSetList.items,
-    configMaps: configMapList.items,
-    secrets: secretList.items,
-    services: serviceList.items,
-    pvcs: pvcList.items,
-    ingresses: ingressList.items,
-    pdbs: pdbList.items,
-    hpas: hpaList.items,
+  const snapshot: NamespaceSnapshot = {
+    deployments: [], statefulSets: [], daemonSets: [], configMaps: [], secrets: [],
+    services: [], pvcs: [], ingresses: [], pdbs: [], hpas: [],
   };
+
+  const fetchers: Record<ResourceKind, () => Promise<void>> = {
+    deployments: async () => { snapshot.deployments = (await apps.listNamespacedDeployment({ namespace })).items; },
+    statefulSets: async () => { snapshot.statefulSets = (await apps.listNamespacedStatefulSet({ namespace })).items; },
+    daemonSets: async () => { snapshot.daemonSets = (await apps.listNamespacedDaemonSet({ namespace })).items; },
+    configMaps: async () => { snapshot.configMaps = (await core.listNamespacedConfigMap({ namespace })).items; },
+    secrets: async () => { snapshot.secrets = (await core.listNamespacedSecret({ namespace })).items; },
+    services: async () => { snapshot.services = (await core.listNamespacedService({ namespace })).items; },
+    pvcs: async () => { snapshot.pvcs = (await core.listNamespacedPersistentVolumeClaim({ namespace })).items; },
+    ingresses: async () => { snapshot.ingresses = (await networking.listNamespacedIngress({ namespace })).items; },
+    pdbs: async () => { snapshot.pdbs = (await policy.listNamespacedPodDisruptionBudget({ namespace })).items; },
+    hpas: async () => { snapshot.hpas = (await autoscaling.listNamespacedHorizontalPodAutoscaler({ namespace })).items; },
+  };
+
+  await Promise.all(RESOURCE_KINDS.filter((k) => wanted.has(k)).map((k) => fetchers[k]()));
+  return snapshot;
 }
