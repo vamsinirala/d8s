@@ -616,6 +616,21 @@ tr.diff-presence td:first-child {
   margin: 0;
 }
 
+.export-btn {
+  background: var(--surface);
+  color: var(--text-secondary);
+  border: 1px solid var(--border-strong);
+  font-size: 0.8rem;
+  padding: 0.4rem 0.75rem;
+  font-weight: 500;
+}
+
+.export-btn:hover:not(:disabled) {
+  background: var(--neutral-soft);
+  border-color: #b7bcc7;
+  color: var(--text);
+}
+
 .field-table code {
   font-family: var(--font-mono);
   font-size: 0.78rem;

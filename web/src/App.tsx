@@ -15,6 +15,7 @@ import {
   type ResourceKind,
 } from "./api";
 import { IS_DEMO } from "./demo";
+import { exportFieldDiff, exportImageVersions } from "./excel";
 import "./App.css";
 
 const KIND_LABELS: Record<ResourceKind, string> = {
@@ -498,6 +499,8 @@ function KindSection({
                   <tr>
                     <td colSpan={envs.length + 2}>
                       <FieldMatrixView
+                        resourceName={row.canonicalName}
+                        kind={kind}
                         loading={fieldMatrixLoading}
                         error={fieldMatrixError}
                         data={fieldMatrix}
@@ -519,6 +522,8 @@ function KindSection({
 }
 
 function FieldMatrixView({
+  resourceName,
+  kind,
   loading,
   error,
   data,
@@ -526,6 +531,8 @@ function FieldMatrixView({
   activeFilter,
   onSetFilter,
 }: {
+  resourceName: string;
+  kind: ResourceKind;
   loading: boolean;
   error: string | null;
   data: ResourceCompareResponse | null;
@@ -577,6 +584,18 @@ function FieldMatrixView({
     setYamlLeftEnv(presentEnvIds[0] ?? "");
     setYamlRightEnv(presentEnvIds[1] ?? presentEnvIds[0] ?? "");
   }, [data, envs]);
+
+  const [exporting, setExporting] = useState(false);
+
+  /** Exports exactly the rows currently on screen, in the same order. */
+  async function handleExport() {
+    setExporting(true);
+    try {
+      await exportFieldDiff(visibleRows, envs, kind, resourceName);
+    } finally {
+      setExporting(false);
+    }
+  }
 
   if (loading) return <p className="empty">Fetching and comparing fields…</p>;
   if (error) return <div className="error">{error}</div>;
@@ -651,6 +670,15 @@ function FieldMatrixView({
           onChange={(e) => setSearch(e.target.value)}
           aria-label="Filter fields by path"
         />
+
+        <button
+          className="export-btn"
+          onClick={handleExport}
+          disabled={visibleRows.length === 0 || exporting}
+          title="Download the rows currently shown, as an Excel file"
+        >
+          {exporting ? "Exporting…" : `Export Excel (${visibleRows.length})`}
+        </button>
       </div>
 
       <div className="diff-legend">
@@ -834,6 +862,32 @@ function groupBy<T, K extends string>(items: T[], keyFn: (item: T) => K): Record
 }
 
 function ImageVersionsView({ data }: { data: ImageVersionsResponse }) {
+  const [driftOnly, setDriftOnly] = useState(false);
+  const [search, setSearch] = useState("");
+
+  const visibleRows = useMemo(() => {
+    const needle = search.trim().toLowerCase();
+    return data.rows.filter((r) => {
+      if (driftOnly && !r.differs) return false;
+      if (needle && !`${r.deployment} ${r.container}`.toLowerCase().includes(needle)) return false;
+      return true;
+    });
+  }, [data, driftOnly, search]);
+
+  const driftCount = useMemo(() => data.rows.filter((r) => r.differs).length, [data]);
+
+  const [exporting, setExporting] = useState(false);
+
+  /** Exports exactly the rows currently on screen, in the same order. */
+  async function handleExport() {
+    setExporting(true);
+    try {
+      await exportImageVersions(visibleRows, data.envs);
+    } finally {
+      setExporting(false);
+    }
+  }
+
   return (
     <section className="card">
       <h2>Image Versions</h2>
@@ -844,6 +898,35 @@ function ImageVersionsView({ data }: { data: ImageVersionsResponse }) {
           </span>
         ))}
       </div>
+
+      {data.rows.length > 0 && (
+        <div className="filter-bar">
+          <div className="filter-row">
+            <button className={!driftOnly ? "tab active" : "tab"} onClick={() => setDriftOnly(false)}>
+              All ({data.rows.length})
+            </button>
+            <button className={driftOnly ? "tab active" : "tab"} onClick={() => setDriftOnly(true)}>
+              Versions differ ({driftCount})
+            </button>
+          </div>
+          <input
+            type="search"
+            className="path-search"
+            placeholder="Filter deployments…"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            aria-label="Filter by deployment or container name"
+          />
+          <button
+            className="export-btn"
+            onClick={handleExport}
+            disabled={visibleRows.length === 0 || exporting}
+            title="Download the rows currently shown, as an Excel file"
+          >
+            {exporting ? "Exporting…" : `Export Excel (${visibleRows.length})`}
+          </button>
+        </div>
+      )}
 
       {data.rows.length === 0 ? (
         <p className="empty">No deployments found.</p>
@@ -860,7 +943,7 @@ function ImageVersionsView({ data }: { data: ImageVersionsResponse }) {
               </tr>
             </thead>
             <tbody>
-              {data.rows.map((row) => (
+              {visibleRows.map((row) => (
                 <tr key={`${row.deployment}/${row.container}`} className={row.differs ? "differs" : ""}>
                   <td className="resource-name">{row.deployment}</td>
                   <td className="resource-name">
@@ -879,6 +962,9 @@ function ImageVersionsView({ data }: { data: ImageVersionsResponse }) {
               ))}
             </tbody>
           </table>
+          {visibleRows.length === 0 && (
+            <p className="empty no-matches">No deployments match the current filters.</p>
+          )}
         </div>
       )}
     </section>
