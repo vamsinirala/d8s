@@ -9,11 +9,13 @@
  * All data below is fictional.
  */
 import type {
+  ChartInfo,
   ContextInfo,
   DeploymentBundle,
   Environment,
   FieldCell,
   FieldMatrixRow,
+  HelmCompareResponse,
   ImageVersionsResponse,
   OverviewResponse,
   ResourceCompareResponse,
@@ -291,7 +293,113 @@ function buildBundle(deployment: string): DeploymentBundle {
   };
 }
 
+const DEMO_CHART: ChartInfo = {
+  path: "/Users/you/charts/payments",
+  name: "payments",
+  version: "1.4.2",
+  appVersion: "2.1.0",
+  description: "Payments service chart",
+  valuesFiles: ["values.yaml", "values/dev.yaml", "values/prod.yaml"],
+};
+
+/** Chart rendered with prod values vs. the live prod namespace: the chart wants 3
+ *  replicas and a newer image than what is actually deployed. */
+function buildHelmCompare(environmentId: string): HelmCompareResponse {
+  const envLabel = environments.find((e) => e.id === environmentId)?.label ?? "prod";
+  const envs = [
+    { id: "chart", label: "chart: payments", status: "ok" as const },
+    { id: environmentId, label: envLabel, status: "ok" as const },
+  ];
+  const both = ["chart", environmentId];
+  return {
+    chart: { name: "payments", version: "1.4.2", path: DEMO_CHART.path },
+    valuesFiles: ["values.yaml", "values/prod.yaml"],
+    envs,
+    kinds: {
+      ...emptyKinds(),
+      deployments: [
+        {
+          canonicalName: "payments-api",
+          namesByEnv: Object.fromEntries(both.map((id) => [id, "payments-api"])),
+          presentEnvIds: both,
+          missingEnvIds: [],
+          diffFieldCount: 2,
+        },
+        {
+          canonicalName: "payments-worker",
+          namesByEnv: { chart: "payments-worker", [environmentId]: null },
+          presentEnvIds: ["chart"],
+          missingEnvIds: [environmentId],
+          diffFieldCount: null,
+        },
+      ],
+      services: [
+        {
+          canonicalName: "payments-api-svc",
+          namesByEnv: Object.fromEntries(both.map((id) => [id, "payments-api-svc"])),
+          presentEnvIds: both,
+          missingEnvIds: [],
+          diffFieldCount: 0,
+        },
+      ],
+      configMaps: [
+        {
+          canonicalName: "payments-config",
+          namesByEnv: Object.fromEntries(both.map((id) => [id, "payments-config"])),
+          presentEnvIds: both,
+          missingEnvIds: [],
+          diffFieldCount: 1,
+        },
+      ],
+    },
+  };
+}
+
 export const demoApi = {
+  helmCheck: () => delay({ available: true, version: "v4.1.1" }, 150),
+  helmInspect: (_chartPath: string) => delay(DEMO_CHART, 300),
+  helmLint: (_chartPath: string, _valuesFiles: string[]) =>
+    delay(
+      {
+        ok: true,
+        messages: [
+          { severity: "unknown" as const, text: "==> Linting /Users/you/charts/payments" },
+          { severity: "info" as const, text: "Chart.yaml: icon is recommended" },
+          { severity: "unknown" as const, text: "1 chart(s) linted, 0 chart(s) failed" },
+        ],
+        raw: "",
+      },
+      400,
+    ),
+  helmCompare: (body: { environmentId: string }) => delay(buildHelmCompare(body.environmentId), 700),
+  helmCompareResource: (body: { environmentId: string; canonicalName: string }) => {
+    const envs = [
+      { id: "chart", label: "chart: payments", status: "ok" as const },
+      {
+        id: body.environmentId,
+        label: environments.find((e) => e.id === body.environmentId)?.label ?? "prod",
+        status: "ok" as const,
+      },
+    ];
+    const live = body.environmentId;
+    const rows =
+      body.canonicalName === "payments-api"
+        ? [
+            row("metadata.name", { chart: cell("payments-api"), [live]: cell("payments-api") }),
+            // The chart wants 3 replicas and a newer image than what is deployed.
+            row("spec.replicas", { chart: cell(3), [live]: cell(2) }),
+            row("spec.template.spec.containers.api.image", {
+              chart: cell("registry.example.com/payments-api:1.4.2"),
+              [live]: cell("registry.example.com/payments-api:1.3.9"),
+            }),
+            row("spec.template.spec.containers.api.resources.limits.cpu", {
+              chart: cell("500m"),
+              [live]: cell("500m"),
+            }),
+          ]
+        : [row("metadata.name", { chart: cell(body.canonicalName), [live]: cell(body.canonicalName) })];
+    return delay({ envs, rows, resources: { chart: {}, [live]: {} } }, 400);
+  },
   listContexts: () => delay(CONTEXTS, 150),
   listNamespaces: (_context: string) => delay(NAMESPACES),
   listEnvironments: () => delay([...environments], 150),

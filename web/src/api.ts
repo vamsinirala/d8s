@@ -102,6 +102,46 @@ export interface ImageVersionsResponse {
   rows: ImageVersionRow[];
 }
 
+export interface HelmAvailability {
+  available: boolean;
+  version?: string;
+  error?: string;
+}
+
+export interface ChartInfo {
+  path: string;
+  name: string;
+  version?: string;
+  appVersion?: string;
+  description?: string;
+  valuesFiles: string[];
+}
+
+export interface LintMessage {
+  severity: "info" | "warning" | "error" | "unknown";
+  text: string;
+}
+
+export interface LintResult {
+  ok: boolean;
+  messages: LintMessage[];
+  raw: string;
+}
+
+export interface HelmCompareInput {
+  chartPath: string;
+  valuesFiles: string[];
+  environmentId: string;
+  releaseName?: string;
+  ignoreServerDefaults: boolean;
+}
+
+/** Same shape as OverviewResponse, plus which chart produced it. */
+export interface HelmCompareResponse extends OverviewResponse {
+  chart: { name: string; version?: string; path: string };
+  valuesFiles: string[];
+}
+
 import { IS_DEMO, demoApi } from "./demo";
 
 async function json<T>(res: Response): Promise<T> {
@@ -153,6 +193,31 @@ const realApi = {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ environmentIds }),
     }).then((r) => json<ImageVersionsResponse>(r)),
+  helmCheck: () => fetch("/api/helm/check").then((r) => json<HelmAvailability>(r)),
+  helmInspect: (chartPath: string) =>
+    fetch("/api/helm/inspect", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ chartPath }),
+    }).then((r) => json<ChartInfo>(r)),
+  helmLint: (chartPath: string, valuesFiles: string[]) =>
+    fetch("/api/helm/lint", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ chartPath, valuesFiles }),
+    }).then((r) => json<LintResult>(r)),
+  helmCompare: (body: HelmCompareInput) =>
+    fetch("/api/helm/compare", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    }).then((r) => json<HelmCompareResponse>(r)),
+  helmCompareResource: (body: HelmCompareInput & { kind: ResourceKind; canonicalName: string }) =>
+    fetch("/api/helm/compare/resource", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    }).then((r) => json<ResourceCompareResponse>(r)),
 };
 
 /** In the GitHub Pages demo build, swap the whole API surface for in-memory data. */

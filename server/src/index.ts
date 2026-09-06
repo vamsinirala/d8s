@@ -26,6 +26,8 @@ import {
   resolveReverseReferences,
   findDanglingReferences,
 } from "./graph/resolve.js";
+import { checkHelm, inspectChart, lintChart, renderChart } from "./helm/helm.js";
+import { snapshotFromManifests, reconcileLiveWithChart } from "./helm/snapshot.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const PORT = Number(process.env.D8S_API_PORT ?? 4173);
@@ -241,6 +243,149 @@ app.post<{ Body: { environmentIds: string[]; kind: ResourceKind; canonicalName: 
   },
 );
 
+interface HelmCompareInput {
+  chartPath: string;
+  valuesFiles?: string[];
+  environmentId: string;
+  releaseName?: string;
+  ignoreServerDefaults?: boolean;
+}
+
+/**
+ * Shared setup for both Helm comparison endpoints: render the chart, read the
+ * live namespace, and optionally strip cluster-populated defaults the chart
+ * never mentions. Rendering is fast and local, so re-doing it for a drill-down
+ * is cheaper than caching rendered output and risking staleness.
+ */
+async function prepareHelmComparison(body: HelmCompareInput) {
+  const { chartPath, valuesFiles = [], environmentId, releaseName, ignoreServerDefaults = true } = body;
+
+  const allEnvs = await loadEnvironments();
+  const env = allEnvs.find((e) => e.id === environmentId);
+  if (!env) throw Object.assign(new Error(`environment not found: ${environmentId}`), { status: 400 });
+
+  const chart = await inspectChart(chartPath);
+
+  const [renderResult, liveResult] = await Promise.allSettled([
+    renderChart(chart.path, valuesFiles, releaseName?.trim() || chart.name, env.namespace),
+    getNormalizedSnapshot(env.context, env.namespace),
+  ]);
+
+  if (renderResult.status === "rejected") {
+    throw Object.assign(new Error(String(renderResult.reason?.message ?? renderResult.reason)), {
+      status: 400,
+    });
+  }
+
+  const chartSnapshot = snapshotFromManifests(renderResult.value);
+  const liveSnapshot =
+    liveResult.status === "fulfilled"
+      ? ignoreServerDefaults
+        ? reconcileLiveWithChart(liveResult.value, chartSnapshot)
+        : liveResult.value
+      : null;
+
+  const envs = [
+    { id: "chart", label: `chart: ${chart.name}`, status: "ok" as const },
+    {
+      id: env.id,
+      label: env.label,
+      status: liveSnapshot ? ("ok" as const) : ("error" as const),
+      error:
+        liveResult.status === "rejected"
+          ? String(liveResult.reason?.message ?? liveResult.reason)
+          : undefined,
+    },
+  ];
+
+  return { chart, env, chartSnapshot, liveSnapshot, envs };
+}
+
+app.get("/api/helm/check", async () => checkHelm());
+
+app.post<{ Body: { chartPath: string } }>("/api/helm/inspect", async (req, reply) => {
+  const { chartPath } = req.body ?? {};
+  if (!chartPath?.trim()) return reply.code(400).send({ error: "chartPath is required" });
+  try {
+    return await inspectChart(chartPath);
+  } catch (e: any) {
+    return reply.code(400).send({ error: String(e?.message ?? e) });
+  }
+});
+
+app.post<{ Body: { chartPath: string; valuesFiles?: string[] } }>(
+  "/api/helm/lint",
+  async (req, reply) => {
+    const { chartPath, valuesFiles = [] } = req.body ?? {};
+    if (!chartPath?.trim()) return reply.code(400).send({ error: "chartPath is required" });
+    try {
+      const chart = await inspectChart(chartPath);
+      return await lintChart(chart.path, valuesFiles);
+    } catch (e: any) {
+      return reply.code(400).send({ error: String(e?.message ?? e) });
+    }
+  },
+);
+
+app.post<{ Body: HelmCompareInput }>("/api/helm/compare", async (req, reply) => {
+  const body = req.body ?? ({} as HelmCompareInput);
+  if (!body.chartPath?.trim()) return reply.code(400).send({ error: "chartPath is required" });
+  if (!body.environmentId) return reply.code(400).send({ error: "environmentId is required" });
+
+  try {
+    const { chart, env, chartSnapshot, liveSnapshot, envs } = await prepareHelmComparison(body);
+
+    const kinds: Record<ResourceKind, OverviewRow[]> = {} as Record<ResourceKind, OverviewRow[]>;
+    for (const kind of RESOURCE_KINDS) {
+      const inputs = [{ envId: "chart", label: "chart", resources: chartSnapshot[kind] }];
+      if (liveSnapshot) {
+        inputs.push({ envId: env.id, label: env.label, resources: liveSnapshot[kind] });
+      }
+      kinds[kind] = buildOverview(inputs);
+    }
+
+    return {
+      chart: { name: chart.name, version: chart.version, path: chart.path },
+      valuesFiles: body.valuesFiles ?? [],
+      envs,
+      kinds,
+    };
+  } catch (e: any) {
+    return reply.code(e?.status ?? 400).send({ error: String(e?.message ?? e) });
+  }
+});
+
+/** Field-level drill-down for one resource in a chart-vs-cluster comparison. */
+app.post<{ Body: HelmCompareInput & { kind: ResourceKind; canonicalName: string } }>(
+  "/api/helm/compare/resource",
+  async (req, reply) => {
+    const body = req.body ?? ({} as never);
+    const { kind, canonicalName: target } = body;
+    if (!RESOURCE_KINDS.includes(kind)) {
+      return reply.code(400).send({ error: `invalid kind: ${kind}` });
+    }
+
+    try {
+      const { env, chartSnapshot, liveSnapshot, envs } = await prepareHelmComparison(body);
+
+      const pick = (resources: Record<string, unknown>[], label: string) =>
+        resources.find((r) => {
+          const name = (r.metadata as Record<string, unknown> | undefined)?.name;
+          return typeof name === "string" && canonicalName(name, label) === target;
+        });
+
+      const resourcesByEnv: Record<string, Record<string, unknown> | undefined> = {
+        chart: pick(chartSnapshot[kind], "chart"),
+      };
+      if (liveSnapshot) resourcesByEnv[env.id] = pick(liveSnapshot[kind], env.label);
+
+      return { envs, rows: buildFieldMatrix(resourcesByEnv), resources: resourcesByEnv };
+    } catch (e: any) {
+      return reply.code(e?.status ?? 400).send({ error: String(e?.message ?? e) });
+    }
+  },
+);
+
 if (!IS_DEV) {
   const webDist = join(__dirname, "../../web/dist");
   if (existsSync(webDist)) {
@@ -255,7 +400,11 @@ if (!IS_DEV) {
 }
 
 const url = `http://localhost:${PORT}`;
-await app.listen({ port: PORT });
+// Bind to loopback explicitly. D8s reads your kubeconfig, talks to your clusters
+// and (for the Helm view) reads local chart directories, so it must never be
+// reachable from the network. Fastify already defaults to localhost; stating it
+// here makes the guarantee deliberate rather than incidental.
+await app.listen({ port: PORT, host: "127.0.0.1" });
 if (IS_DEV) {
   app.log.info(`API dev server on ${url} — run the web dev server separately`);
 } else {

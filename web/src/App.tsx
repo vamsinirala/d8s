@@ -14,6 +14,7 @@ import {
   type ResourceCompareResponse,
   type ResourceKind,
 } from "./api";
+import { HelmView } from "./HelmView";
 import { IS_DEMO } from "./demo";
 import { exportFieldDiff, exportImageVersions } from "./excel";
 import "./App.css";
@@ -58,6 +59,7 @@ export default function App() {
   const [label, setLabel] = useState<string>("");
   const [loadingNamespaces, setLoadingNamespaces] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [tab, setTab] = useState<"compare" | "helm">("compare");
 
   const [selectedEnvIds, setSelectedEnvIds] = useState<Set<string>>(new Set());
   const [overview, setOverview] = useState<OverviewResponse | null>(null);
@@ -241,6 +243,66 @@ export default function App() {
 
       {error && <div className="error">{error}</div>}
 
+      <nav className="main-tabs" aria-label="Views">
+        <button
+          className={tab === "compare" ? "main-tab active" : "main-tab"}
+          onClick={() => setTab("compare")}
+        >
+          Compare environments
+        </button>
+        <button
+          className={tab === "helm" ? "main-tab active" : "main-tab"}
+          onClick={() => setTab("helm")}
+        >
+          Helm chart vs cluster
+        </button>
+      </nav>
+
+      {/* Both views stay mounted so switching tabs doesn't discard a loaded
+          chart or an in-progress comparison. */}
+      <div className="tab-panel" hidden={tab !== "helm"}>
+        <HelmView
+          environments={environments}
+          renderComparison={(res, drill) => (
+            <section className="card">
+              <h2>
+                Chart vs {res.envs.find((e) => e.id !== "chart")?.label ?? "environment"}
+              </h2>
+              <div className="env-status-row">
+                {res.envs.map((e) => (
+                  <span
+                    key={e.id}
+                    className={e.status === "ok" ? "env-badge ok" : "env-badge error"}
+                  >
+                    {e.label} {e.status === "error" ? `— ${e.error}` : ""}
+                  </span>
+                ))}
+              </div>
+              {RESOURCE_KINDS.filter((k) => res.kinds[k]?.length > 0).length === 0 ? (
+                <p className="empty">The chart rendered no comparable resources.</p>
+              ) : (
+                RESOURCE_KINDS.filter((k) => res.kinds[k]?.length > 0).map((kind) => (
+                  <KindSection
+                    key={kind}
+                    kind={kind}
+                    rows={res.kinds[kind]}
+                    envs={res.envs}
+                    expanded={drill.expanded}
+                    onOpenResource={drill.onOpenResource}
+                    fieldMatrix={drill.fieldMatrix}
+                    fieldMatrixLoading={drill.loading}
+                    fieldMatrixError={drill.error}
+                    activeFilter={drill.activeFilter}
+                    onSetFilter={drill.onSetFilter}
+                  />
+                ))
+              )}
+            </section>
+          )}
+        />
+      </div>
+
+      <div className="tab-panel" hidden={tab !== "compare"}>
       <section className="card">
         <h2>Add environment</h2>
         <div className="form-row">
@@ -424,6 +486,7 @@ export default function App() {
           ))}
         </section>
       )}
+      </div>
     </div>
   );
 }

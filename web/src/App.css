@@ -121,6 +121,207 @@ h1 {
   font-weight: 600;
 }
 
+/* ---------- Top-level tabs ---------- */
+
+.main-tabs {
+  display: flex;
+  gap: 0.25rem;
+  margin-bottom: 1.5rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.main-tab {
+  background: transparent;
+  border: none;
+  border-bottom: 2px solid transparent;
+  border-radius: 0;
+  color: var(--text-secondary);
+  font-size: 0.92rem;
+  font-weight: 500;
+  padding: 0.6rem 1rem;
+  margin-bottom: -1px;
+}
+
+.main-tab:hover:not(:disabled) {
+  background: transparent;
+  color: var(--text);
+}
+
+.main-tab.active {
+  color: var(--primary);
+  border-bottom-color: var(--primary);
+}
+
+/* Both tab panels stay mounted to preserve state; [hidden] must win over any
+   display rule the contents set. */
+.tab-panel[hidden] {
+  display: none;
+}
+
+/* ---------- Helm view ---------- */
+
+.chart-path {
+  flex: 1 1 380px;
+  min-width: 240px;
+  font-family: var(--font-mono);
+  font-size: 0.82rem;
+}
+
+.release-name {
+  flex: 0 1 200px;
+}
+
+.helm-version {
+  font-size: 0.78rem;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+}
+
+.hint {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  margin: 0.6rem 0 0;
+}
+
+.hint.inline {
+  display: block;
+  margin: 0.2rem 0 0 1.6rem;
+}
+
+.chart-info {
+  margin-top: 1.25rem;
+  padding-top: 1.1rem;
+  border-top: 1px solid var(--border);
+}
+
+.chart-summary {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+  font-size: 0.95rem;
+}
+
+.chip {
+  background: var(--neutral-soft);
+  color: var(--neutral-text);
+  border-radius: var(--radius-pill);
+  padding: 0.15rem 0.55rem;
+  font-size: 0.74rem;
+  font-weight: 600;
+}
+
+.chart-path-shown {
+  font-family: var(--font-mono);
+  font-size: 0.76rem;
+  color: var(--text-muted);
+  overflow-wrap: anywhere;
+}
+
+.values-list {
+  list-style: none;
+  padding: 0;
+  margin: 0.4rem 0 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.values-list label {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  cursor: pointer;
+  font-size: 0.86rem;
+}
+
+.values-list input[type="checkbox"] {
+  accent-color: var(--primary);
+  width: 15px;
+  height: 15px;
+}
+
+.values-list code {
+  font-family: var(--font-mono);
+  font-size: 0.8rem;
+  background: var(--neutral-soft);
+  padding: 0.12rem 0.4rem;
+  border-radius: var(--radius-sm);
+}
+
+.toggle-row {
+  display: block;
+  margin-top: 1rem;
+  font-size: 0.86rem;
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+
+.toggle-row > input {
+  accent-color: var(--primary);
+  margin-right: 0.5rem;
+  width: 15px;
+  height: 15px;
+}
+
+.lint-list {
+  list-style: none;
+  padding: 0;
+  margin: 1rem 0 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.lint-list li {
+  display: flex;
+  align-items: baseline;
+  gap: 0.55rem;
+  font-size: 0.84rem;
+  padding: 0.35rem 0.6rem;
+  border-radius: var(--radius-sm);
+  background: #fbfbfd;
+}
+
+.lint-list li.lint-error {
+  background: var(--danger-soft);
+}
+
+.lint-list li.lint-warning {
+  background: var(--warning-soft);
+}
+
+.lint-text {
+  font-family: var(--font-mono);
+  font-size: 0.78rem;
+  overflow-wrap: anywhere;
+}
+
+.lint-badge {
+  text-transform: uppercase;
+  font-size: 0.64rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  padding: 0.1rem 0.4rem;
+  border-radius: var(--radius-pill);
+  flex-shrink: 0;
+}
+
+.lint-badge-error {
+  background: var(--danger);
+  color: #fff;
+}
+
+.lint-badge-warning {
+  background: #b8860b;
+  color: #fff;
+}
+
+.lint-badge-info {
+  background: var(--neutral-soft);
+  color: var(--neutral-text);
+}
+
 /* ---------- Layout / cards ---------- */
 
 .card {
