@@ -31,7 +31,10 @@ import { snapshotFromManifests, reconcileLiveWithChart } from "./helm/snapshot.j
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const PORT = Number(process.env.D8S_API_PORT ?? 4173);
-const IS_DEV = process.env.NODE_ENV !== "production";
+// Production mode serves the built UI and opens the browser. Enabled by
+// NODE_ENV=production (release launchers) or --production (npm start), the flag
+// existing because inline env vars in npm scripts don't work on Windows.
+const IS_DEV = process.env.NODE_ENV !== "production" && !process.argv.includes("--production");
 
 const app = Fastify({ logger: true });
 

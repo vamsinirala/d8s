@@ -99,8 +99,7 @@ This starts two processes:
 ### Production-style single-process run
 
 ```bash
-npm run build
-npm run start
+npm run prod
 ```
 
 This builds both the frontend and the server, then serves everything (API + built
