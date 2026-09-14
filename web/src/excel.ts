@@ -1,6 +1,12 @@
 import writeXlsxFile from "write-excel-file/browser";
 import type { Row } from "write-excel-file/browser";
-import type { DiffKind, FieldMatrixRow, ImageVersionRow } from "./api";
+import type {
+  DiffKind,
+  FieldMatrixRow,
+  ImageVersionRow,
+  OverviewRow,
+  ResourceDifferences,
+} from "./api";
 
 /**
  * Excel export for the diff views.
@@ -54,6 +60,168 @@ function timestamp(): string {
 
 function slug(value: string): string {
   return value.replace(/[^a-z0-9._-]+/gi, "-").replace(/^-+|-+$/g, "").toLowerCase() || "export";
+}
+
+const KIND_LABELS: Record<string, string> = {
+  deployments: "Deployment",
+  statefulSets: "StatefulSet",
+  daemonSets: "DaemonSet",
+  configMaps: "ConfigMap",
+  secrets: "Secret",
+  services: "Service",
+  pvcs: "PVC",
+  ingresses: "Ingress",
+  pdbs: "PodDisruptionBudget",
+  hpas: "HorizontalPodAutoscaler",
+};
+
+/**
+ * One workbook covering an entire comparison, with a sheet per section:
+ *
+ *   Summary          every resource, where it exists, how many fields differ
+ *   All differences  every differing field of every resource, kind-tagged
+ *   <Kind>           the same rows split per resource kind, for focused review
+ *   Image versions   container image tags side by side (when included)
+ *
+ * The combined sheet is first because Excel's autofilter makes it the most
+ * useful view; the per-kind sheets exist so you can hand someone just the
+ * ConfigMap drift without them filtering anything.
+ */
+export async function exportEverything(args: {
+  envs: { id: string; label: string }[];
+  kinds: Record<string, OverviewRow[]>;
+  differences: ResourceDifferences[];
+  images?: { rows: ImageVersionRow[] } | null;
+  /** Used in the filename, e.g. the chart name for a Helm comparison. */
+  subject?: string;
+}): Promise<void> {
+  const { envs, kinds, differences, images, subject } = args;
+
+  // --- Summary -------------------------------------------------------------
+  const summaryHeader: Row = [
+    headerCell("Kind"),
+    headerCell("Resource"),
+    ...envs.map((e) => headerCell(e.label)),
+    headerCell("Fields differing"),
+  ];
+  const summaryRows: Row[] = [];
+  for (const [kind, rows] of Object.entries(kinds)) {
+    for (const r of rows) {
+      summaryRows.push([
+        { value: KIND_LABELS[kind] ?? kind, align: "left" as const },
+        { value: r.canonicalName, align: "left" as const },
+        ...envs.map((e) => ({
+          value: r.presentEnvIds.includes(e.id) ? "yes" : "—",
+          align: "left" as const,
+        })),
+        {
+          value: r.diffFieldCount === null ? "n/a" : String(r.diffFieldCount),
+          align: "left" as const,
+          // Flag anything that actually differs so it stands out at a glance.
+          backgroundColor: r.diffFieldCount ? KIND_FILL.value : undefined,
+        },
+      ]);
+    }
+  }
+
+  // --- Differences ---------------------------------------------------------
+  const diffHeader: Row = [
+    headerCell("Kind"),
+    headerCell("Resource"),
+    headerCell("Path"),
+    ...envs.map((e) => headerCell(e.label)),
+    headerCell("Difference"),
+  ];
+
+  const diffRowsFor = (entries: ResourceDifferences[]): Row[] =>
+    entries.flatMap(({ kind, resource, rows }) =>
+      rows.map((r) => {
+        const backgroundColor = KIND_FILL[r.diffKind];
+        const cell = (value: string) => ({ value, backgroundColor, align: "left" as const });
+        return [
+          cell(KIND_LABELS[kind] ?? kind),
+          cell(resource),
+          cell(r.path),
+          ...envs.map((e) => cell(r.cells[e.id]?.present ? displayValue(r.cells[e.id].value) : "")),
+          cell(KIND_LABEL[r.diffKind]),
+        ];
+      }),
+    );
+
+  const diffWidths = [
+    { width: 22 },
+    { width: 30 },
+    { width: 58 },
+    ...envs.map(() => ({ width: 36 })),
+    { width: 28 },
+  ];
+
+  const sheets: {
+    name: string;
+    data: Row[];
+    columns: { width: number }[];
+  }[] = [
+    {
+      name: "Summary",
+      data: [summaryHeader, ...summaryRows],
+      columns: [{ width: 22 }, { width: 34 }, ...envs.map(() => ({ width: 16 })), { width: 18 }],
+    },
+    {
+      name: "All differences",
+      data: [diffHeader, ...diffRowsFor(differences)],
+      columns: diffWidths,
+    },
+  ];
+
+  // Per-kind sheets, only for kinds that actually have differences.
+  for (const kind of Object.keys(KIND_LABELS)) {
+    const entries = differences.filter((d) => d.kind === kind);
+    if (entries.length === 0) continue;
+    sheets.push({
+      // Excel sheet names cap at 31 chars and forbid a handful of characters.
+      name: sheetName(`${KIND_LABELS[kind] ?? kind}s`),
+      data: [diffHeader, ...diffRowsFor(entries)],
+      columns: diffWidths,
+    });
+  }
+
+  if (images && images.rows.length > 0) {
+    const header: Row = [
+      headerCell("Deployment"),
+      headerCell("Container"),
+      ...envs.map((e) => headerCell(e.label)),
+      headerCell("Versions differ"),
+    ];
+    const rows: Row[] = images.rows.map((r) => {
+      const backgroundColor = r.differs ? KIND_FILL.value : undefined;
+      const cell = (value: string) => ({ value, backgroundColor, align: "left" as const });
+      return [
+        cell(r.deployment),
+        cell(r.container + (r.isInit ? " (init)" : "")),
+        ...envs.map((e) => cell(r.images[e.id] ?? "")),
+        cell(r.differs ? "yes" : "no"),
+      ];
+    });
+    sheets.push({
+      name: "Image versions",
+      data: [header, ...rows],
+      columns: [{ width: 32 }, { width: 32 }, ...envs.map(() => ({ width: 44 })), { width: 16 }],
+    });
+  }
+
+  await writeXlsxFile(
+    sheets.map((s) => ({
+      data: s.data,
+      sheet: s.name,
+      columns: s.columns,
+      stickyRowsCount: 1,
+    })),
+  ).toFile(`d8s-${subject ? slug(subject) + "-" : ""}comparison-${timestamp()}.xlsx`);
+}
+
+/** Excel rejects > 31 chars and the characters : \ / ? * [ ] in sheet names. */
+function sheetName(name: string): string {
+  return name.replace(/[:\\/?*[\]]/g, "-").slice(0, 31);
 }
 
 /**

@@ -19,6 +19,7 @@ import type {
   ImageVersionsResponse,
   OverviewResponse,
   ResourceCompareResponse,
+  ResourceDifferences,
   ResourceKind,
 } from "./api";
 
@@ -355,6 +356,24 @@ function buildHelmCompare(environmentId: string): HelmCompareResponse {
   };
 }
 
+/** The export endpoints return the overview plus every differing field of every
+ *  matched resource; here that means replaying the per-resource builders. */
+function buildDifferences(
+  kinds: Record<string, { canonicalName: string }[]>,
+  rowsFor: (canonicalName: string) => FieldMatrixRow[],
+) {
+  const out: ResourceDifferences[] = [];
+  for (const [kind, rows] of Object.entries(kinds)) {
+    for (const r of rows) {
+      const differing = rowsFor(r.canonicalName).filter((f) => f.differs);
+      if (differing.length > 0) {
+        out.push({ kind: kind as ResourceKind, resource: r.canonicalName, rows: differing });
+      }
+    }
+  }
+  return out;
+}
+
 export const demoApi = {
   helmCheck: () => delay({ available: true, version: "v4.1.1" }, 150),
   helmInspect: (_chartPath: string) => delay(DEMO_CHART, 300),
@@ -418,4 +437,38 @@ export const demoApi = {
   listDeployments: (_envId: string) => delay(DEPLOYMENTS, 250),
   getBundle: (_envId: string, deploymentName: string) => delay(buildBundle(deploymentName), 400),
   compareImages: (environmentIds: string[]) => delay(buildImages(environmentIds), 450),
+  compareExport: (environmentIds: string[]) => {
+    const overview = buildOverview(environmentIds);
+    return delay(
+      {
+        ...overview,
+        differences: buildDifferences(
+          overview.kinds,
+          (name) => buildResourceCompare(environmentIds, name).rows,
+        ),
+      },
+      700,
+    );
+  },
+  helmCompareExport: (body: { environmentId: string }) => {
+    const compare = buildHelmCompare(body.environmentId);
+    return delay(
+      {
+        ...compare,
+        differences: buildDifferences(compare.kinds, (name) => {
+          const live = body.environmentId;
+          return name === "payments-api"
+            ? [
+                row("spec.replicas", { chart: cell(3), [live]: cell(2) }),
+                row("spec.template.spec.containers.api.image", {
+                  chart: cell("registry.example.com/payments-api:1.4.2"),
+                  [live]: cell("registry.example.com/payments-api:1.3.9"),
+                }),
+              ]
+            : [];
+        }),
+      },
+      800,
+    );
+  },
 };

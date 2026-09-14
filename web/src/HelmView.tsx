@@ -9,6 +9,7 @@ import {
   type ResourceCompareResponse,
   type ResourceKind,
 } from "./api";
+import { exportEverything } from "./excel";
 
 /**
  * Compare a local Helm chart against a live environment.
@@ -54,6 +55,9 @@ export function HelmView({
   const [result, setResult] = useState<HelmCompareResponse | null>(null);
   const [comparing, setComparing] = useState(false);
   const [compareError, setCompareError] = useState<string | null>(null);
+
+  const [exportingAll, setExportingAll] = useState(false);
+  const [exportError, setExportError] = useState<string | null>(null);
 
   const [expanded, setExpanded] = useState<{ kind: ResourceKind; canonicalName: string } | null>(null);
   const [fieldMatrix, setFieldMatrix] = useState<ResourceCompareResponse | null>(null);
@@ -154,6 +158,33 @@ export function HelmView({
       setCompareError(String(e));
     } finally {
       setComparing(false);
+    }
+  }
+
+  /** Re-renders the chart server-side and returns every differing field in one
+   *  round-trip, rather than drilling into each resource separately. */
+  async function handleExportAll() {
+    if (!chart || !envId) return;
+    setExportingAll(true);
+    setExportError(null);
+    try {
+      const data = await api.helmCompareExport({
+        chartPath: chart.path,
+        valuesFiles: selectedValues,
+        environmentId: envId,
+        releaseName: releaseName.trim() || undefined,
+        ignoreServerDefaults: ignoreDefaults,
+      });
+      await exportEverything({
+        envs: data.envs,
+        kinds: data.kinds,
+        differences: data.differences,
+        subject: data.chart.name,
+      });
+    } catch (e) {
+      setExportError(String(e));
+    } finally {
+      setExportingAll(false);
     }
   }
 
@@ -312,6 +343,20 @@ export function HelmView({
 
           {compareError && <div className="error">{compareError}</div>}
         </section>
+      )}
+
+      {result && (
+        <div className="export-all helm-export-all">
+          <button
+            className="export-btn"
+            onClick={handleExportAll}
+            disabled={exportingAll}
+            title="Download one Excel workbook with every chart-vs-cluster difference"
+          >
+            {exportingAll ? "Building workbook…" : "Export everything to Excel"}
+          </button>
+          {exportError && <span className="error-inline">{exportError}</span>}
+        </div>
       )}
 
       {result &&

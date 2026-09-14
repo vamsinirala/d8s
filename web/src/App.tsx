@@ -16,7 +16,7 @@ import {
 } from "./api";
 import { HelmView } from "./HelmView";
 import { IS_DEMO } from "./demo";
-import { exportFieldDiff, exportImageVersions } from "./excel";
+import { exportEverything, exportFieldDiff, exportImageVersions } from "./excel";
 import "./App.css";
 
 const KIND_LABELS: Record<ResourceKind, string> = {
@@ -460,7 +460,13 @@ export default function App() {
 
       {overview && (
         <section className="card">
-          <h2>Comparison</h2>
+          <div className="card-heading">
+            <h2>Comparison</h2>
+            <ExportEverythingButton
+              envIds={overview.envs.map((e) => e.id)}
+              images={imageVersions}
+            />
+          </div>
           <div className="env-status-row">
             {overview.envs.map((e) => (
               <span key={e.id} className={e.status === "ok" ? "env-badge ok" : "env-badge error"}>
@@ -487,6 +493,62 @@ export default function App() {
         </section>
       )}
       </div>
+    </div>
+  );
+}
+
+/**
+ * One workbook for the whole comparison: the overview, every differing field of
+ * every resource, and the image-version table.
+ *
+ * Unlike the per-view exports, this deliberately ignores the on-screen filters —
+ * the point is a complete record you can hand to someone else. The server does
+ * the whole thing from a single snapshot fetch, so it costs one round-trip
+ * rather than one per resource; the image table is fetched too if the Image
+ * Versions view hasn't already loaded it.
+ */
+function ExportEverythingButton({
+  envIds,
+  images,
+}: {
+  envIds: string[];
+  images: ImageVersionsResponse | null;
+}) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function handleClick() {
+    setBusy(true);
+    setError(null);
+    try {
+      const [data, imageData] = await Promise.all([
+        api.compareExport(envIds),
+        images ?? api.compareImages(envIds).catch(() => null),
+      ]);
+      await exportEverything({
+        envs: data.envs,
+        kinds: data.kinds,
+        differences: data.differences,
+        images: imageData,
+      });
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="export-all">
+      <button
+        className="export-btn"
+        onClick={handleClick}
+        disabled={busy || envIds.length === 0}
+        title="Download one Excel workbook with every difference and the image versions"
+      >
+        {busy ? "Building workbook…" : "Export everything to Excel"}
+      </button>
+      {error && <span className="error-inline">{error}</span>}
     </div>
   );
 }

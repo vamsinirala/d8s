@@ -982,3 +982,32 @@ li.dangling {
 .image-versions-table tr.differs {
   background: var(--warning-row);
 }
+
+/* Header row for a card that carries an action alongside its title. */
+.card-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.card-heading h2 {
+  margin: 0;
+}
+
+.export-all {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.helm-export-all {
+  margin: 0 0 16px;
+}
+
+.error-inline {
+  color: var(--danger);
+  font-size: 13px;
+}

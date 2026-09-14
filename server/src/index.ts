@@ -11,7 +11,12 @@ import {
   removeEnvironment,
   type Environment,
 } from "./config/store.js";
-import { getNormalizedSnapshot, RESOURCE_KINDS, type ResourceKind } from "./diff/snapshot.js";
+import {
+  getNormalizedSnapshot,
+  RESOURCE_KINDS,
+  type ResourceKind,
+  type NormalizedSnapshot,
+} from "./diff/snapshot.js";
 import {
   buildOverview,
   buildFieldMatrix,
@@ -19,6 +24,7 @@ import {
   matchAcrossEnvironments,
   extractContainerImages,
   type OverviewRow,
+  type FieldMatrixRow,
 } from "./diff/engine.js";
 import { fetchNamespaceSnapshot } from "./k8s/fetch.js";
 import {
@@ -187,6 +193,74 @@ app.post<{ Body: { environmentIds: string[] } }>("/api/compare/overview", async 
   };
 });
 
+/**
+ * Every differing field of every matched resource, across all kinds, in one
+ * response — the data behind "export everything".
+ *
+ * Doing this by calling the per-resource drill-down would be one round trip per
+ * resource. Here the snapshots are fetched once and the rest is local work
+ * (matching plus diffing is milliseconds even at a few hundred resources), so
+ * the whole export costs the same as a single comparison.
+ *
+ * Only differing rows are returned; identical fields would dominate the payload
+ * and aren't what the export is for.
+ */
+function collectAllDifferences(
+  envIds: string[],
+  snapshotFor: (envId: string) => NormalizedSnapshot | null,
+  labelFor: (envId: string) => string,
+) {
+  const out: { kind: ResourceKind; resource: string; rows: FieldMatrixRow[] }[] = [];
+
+  for (const kind of RESOURCE_KINDS) {
+    const inputs = envIds
+      .filter((id) => snapshotFor(id))
+      .map((id) => ({ envId: id, label: labelFor(id), resources: snapshotFor(id)![kind] }));
+    if (inputs.length === 0) continue;
+
+    for (const [canonical, byEnv] of matchAcrossEnvironments(inputs)) {
+      const resourcesByEnv: Record<string, Record<string, unknown> | undefined> = {};
+      for (const id of envIds) resourcesByEnv[id] = byEnv.get(id);
+
+      const rows = buildFieldMatrix(resourcesByEnv).filter((r) => r.differs);
+      if (rows.length > 0) out.push({ kind, resource: canonical, rows });
+    }
+  }
+  return out;
+}
+
+app.post<{ Body: { environmentIds: string[] } }>("/api/compare/export", async (req, reply) => {
+  const envs = await resolveEnvironments(req.body?.environmentIds, reply);
+  if (!envs) return;
+
+  const results = await fetchSnapshotsSettled(envs);
+  const byId = new Map(results.map((r) => [r.env.id, r]));
+  const envIds = envs.map((e) => e.id);
+
+  const kinds: Record<ResourceKind, OverviewRow[]> = {} as Record<ResourceKind, OverviewRow[]>;
+  const ok = results.filter((r) => r.status === "ok");
+  for (const kind of RESOURCE_KINDS) {
+    kinds[kind] = buildOverview(
+      ok.map((r) => ({ envId: r.env.id, label: r.env.label, resources: r.snapshot![kind] })),
+    );
+  }
+
+  return {
+    envs: results.map((r) => ({
+      id: r.env.id,
+      label: r.env.label,
+      status: r.status,
+      error: r.error,
+    })),
+    kinds,
+    differences: collectAllDifferences(
+      envIds,
+      (id) => byId.get(id)?.snapshot ?? null,
+      (id) => byId.get(id)?.env.label ?? id,
+    ),
+  };
+});
+
 app.post<{ Body: { environmentIds: string[] } }>("/api/compare/images", async (req, reply) => {
   const envs = await resolveEnvironments(req.body?.environmentIds, reply);
   if (!envs) return;
@@ -352,6 +426,39 @@ app.post<{ Body: HelmCompareInput }>("/api/helm/compare", async (req, reply) => 
       valuesFiles: body.valuesFiles ?? [],
       envs,
       kinds,
+    };
+  } catch (e: any) {
+    return reply.code(e?.status ?? 400).send({ error: String(e?.message ?? e) });
+  }
+});
+
+/** Everything differing between the chart and the cluster, for export. */
+app.post<{ Body: HelmCompareInput }>("/api/helm/compare/export", async (req, reply) => {
+  const body = req.body ?? ({} as HelmCompareInput);
+  if (!body.chartPath?.trim()) return reply.code(400).send({ error: "chartPath is required" });
+  if (!body.environmentId) return reply.code(400).send({ error: "environmentId is required" });
+
+  try {
+    const { chart, env, chartSnapshot, liveSnapshot, envs } = await prepareHelmComparison(body);
+    const envIds = ["chart", env.id];
+
+    const kinds: Record<ResourceKind, OverviewRow[]> = {} as Record<ResourceKind, OverviewRow[]>;
+    for (const kind of RESOURCE_KINDS) {
+      const inputs = [{ envId: "chart", label: "chart", resources: chartSnapshot[kind] }];
+      if (liveSnapshot) inputs.push({ envId: env.id, label: env.label, resources: liveSnapshot[kind] });
+      kinds[kind] = buildOverview(inputs);
+    }
+
+    return {
+      chart: { name: chart.name, version: chart.version, path: chart.path },
+      valuesFiles: body.valuesFiles ?? [],
+      envs,
+      kinds,
+      differences: collectAllDifferences(
+        envIds,
+        (id) => (id === "chart" ? chartSnapshot : liveSnapshot),
+        (id) => (id === "chart" ? "chart" : env.label),
+      ),
     };
   } catch (e: any) {
     return reply.code(e?.status ?? 400).send({ error: String(e?.message ?? e) });

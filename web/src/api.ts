@@ -102,6 +102,21 @@ export interface ImageVersionsResponse {
   rows: ImageVersionRow[];
 }
 
+/** Every differing field of one matched resource, as returned by the export endpoints. */
+export interface ResourceDifferences {
+  kind: ResourceKind;
+  resource: string;
+  rows: FieldMatrixRow[];
+}
+
+export interface CompareExportResponse extends OverviewResponse {
+  differences: ResourceDifferences[];
+}
+
+export interface HelmExportResponse extends HelmCompareResponse {
+  differences: ResourceDifferences[];
+}
+
 export interface HelmAvailability {
   available: boolean;
   version?: string;
@@ -212,6 +227,18 @@ const realApi = {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
     }).then((r) => json<HelmCompareResponse>(r)),
+  compareExport: (environmentIds: string[]) =>
+    fetch("/api/compare/export", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ environmentIds }),
+    }).then((r) => json<CompareExportResponse>(r)),
+  helmCompareExport: (body: HelmCompareInput) =>
+    fetch("/api/helm/compare/export", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    }).then((r) => json<HelmExportResponse>(r)),
   helmCompareResource: (body: HelmCompareInput & { kind: ResourceKind; canonicalName: string }) =>
     fetch("/api/helm/compare/resource", {
       method: "POST",
