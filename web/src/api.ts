@@ -33,6 +33,8 @@ export interface CompareEnvStatus {
   label: string;
   status: "ok" | "error";
   error?: string;
+  /** Epoch ms the cluster data was fetched; absent for rendered chart output. */
+  fetchedAt?: number;
 }
 
 export interface OverviewRow {
@@ -158,6 +160,7 @@ export interface HelmCompareResponse extends OverviewResponse {
 }
 
 import { IS_DEMO, demoApi } from "./demo";
+import { cachedResponse, clearResponseCache } from "./responseCache";
 
 async function json<T>(res: Response): Promise<T> {
   if (!res.ok) {
@@ -185,17 +188,17 @@ const realApi = {
       if (!r.ok) throw new Error(`${r.status} ${r.statusText}`);
     }),
   compareOverview: (environmentIds: string[]) =>
-    fetch("/api/compare/overview", {
+    cachedResponse(`overview:${environmentIds.join(",")}`, () => fetch("/api/compare/overview", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ environmentIds }),
-    }).then((r) => json<OverviewResponse>(r)),
+    }).then((r) => json<OverviewResponse>(r))),
   compareResource: (environmentIds: string[], kind: ResourceKind, canonicalName: string) =>
-    fetch("/api/compare/resource", {
+    cachedResponse(`resource:${environmentIds.join(",")}:${kind}:${canonicalName}`, () => fetch("/api/compare/resource", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ environmentIds, kind, canonicalName }),
-    }).then((r) => json<ResourceCompareResponse>(r)),
+    }).then((r) => json<ResourceCompareResponse>(r))),
   listDeployments: (envId: string) =>
     fetch(`/api/environments/${envId}/deployments`).then((r) => json<string[]>(r)),
   getBundle: (envId: string, deploymentName: string) =>
@@ -203,11 +206,21 @@ const realApi = {
       json<DeploymentBundle>(r),
     ),
   compareImages: (environmentIds: string[]) =>
-    fetch("/api/compare/images", {
+    cachedResponse(`images:${environmentIds.join(",")}`, () => fetch("/api/compare/images", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ environmentIds }),
-    }).then((r) => json<ImageVersionsResponse>(r)),
+    }).then((r) => json<ImageVersionsResponse>(r))),
+  /** Discards cached data in both the browser and the server for these environments. */
+  refreshCache: async (environmentIds: string[]) => {
+    await clearResponseCache();
+    const r = await fetch("/api/cache/refresh", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ environmentIds }),
+    });
+    if (!r.ok) throw new Error(`${r.status} ${r.statusText}`);
+  },
   helmCheck: () => fetch("/api/helm/check").then((r) => json<HelmAvailability>(r)),
   helmInspect: (chartPath: string) =>
     fetch("/api/helm/inspect", {

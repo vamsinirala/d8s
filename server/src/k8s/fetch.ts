@@ -16,6 +16,7 @@ import {
   type V2HorizontalPodAutoscaler,
 } from "@kubernetes/client-node";
 import { apiClientFor } from "./clients.js";
+import { cached } from "./cache.js";
 
 export interface NamespaceSnapshot {
   deployments: V1Deployment[];
@@ -71,6 +72,19 @@ export async function fetchNamespaceSnapshot(
   namespace: string,
   kinds: readonly ResourceKind[] = RESOURCE_KINDS,
 ): Promise<NamespaceSnapshot> {
+  return (await fetchNamespaceSnapshotWithAge(contextName, namespace, kinds)).snapshot;
+}
+
+/**
+ * Same as fetchNamespaceSnapshot, plus when the data was fetched. Each kind is
+ * served from the cache when fresh (see cache.ts); `fetchedAt` is the oldest of
+ * the kinds involved, so the UI never claims data is newer than it is.
+ */
+export async function fetchNamespaceSnapshotWithAge(
+  contextName: string,
+  namespace: string,
+  kinds: readonly ResourceKind[] = RESOURCE_KINDS,
+): Promise<{ snapshot: NamespaceSnapshot; fetchedAt: number }> {
   const wanted = new Set(kinds);
   const { apps, core, networking, policy, autoscaling } = clientsFor(contextName);
 
@@ -79,19 +93,26 @@ export async function fetchNamespaceSnapshot(
     services: [], pvcs: [], ingresses: [], pdbs: [], hpas: [],
   };
 
-  const fetchers: Record<ResourceKind, () => Promise<void>> = {
-    deployments: async () => { snapshot.deployments = (await apps.listNamespacedDeployment({ namespace })).items; },
-    statefulSets: async () => { snapshot.statefulSets = (await apps.listNamespacedStatefulSet({ namespace })).items; },
-    daemonSets: async () => { snapshot.daemonSets = (await apps.listNamespacedDaemonSet({ namespace })).items; },
-    configMaps: async () => { snapshot.configMaps = (await core.listNamespacedConfigMap({ namespace })).items; },
-    secrets: async () => { snapshot.secrets = (await core.listNamespacedSecret({ namespace })).items; },
-    services: async () => { snapshot.services = (await core.listNamespacedService({ namespace })).items; },
-    pvcs: async () => { snapshot.pvcs = (await core.listNamespacedPersistentVolumeClaim({ namespace })).items; },
-    ingresses: async () => { snapshot.ingresses = (await networking.listNamespacedIngress({ namespace })).items; },
-    pdbs: async () => { snapshot.pdbs = (await policy.listNamespacedPodDisruptionBudget({ namespace })).items; },
-    hpas: async () => { snapshot.hpas = (await autoscaling.listNamespacedHorizontalPodAutoscaler({ namespace })).items; },
+  const listers: { [K in ResourceKind]: () => Promise<NamespaceSnapshot[K]> } = {
+    deployments: async () => (await apps.listNamespacedDeployment({ namespace })).items,
+    statefulSets: async () => (await apps.listNamespacedStatefulSet({ namespace })).items,
+    daemonSets: async () => (await apps.listNamespacedDaemonSet({ namespace })).items,
+    configMaps: async () => (await core.listNamespacedConfigMap({ namespace })).items,
+    secrets: async () => (await core.listNamespacedSecret({ namespace })).items,
+    services: async () => (await core.listNamespacedService({ namespace })).items,
+    pvcs: async () => (await core.listNamespacedPersistentVolumeClaim({ namespace })).items,
+    ingresses: async () => (await networking.listNamespacedIngress({ namespace })).items,
+    pdbs: async () => (await policy.listNamespacedPodDisruptionBudget({ namespace })).items,
+    hpas: async () => (await autoscaling.listNamespacedHorizontalPodAutoscaler({ namespace })).items,
   };
 
-  await Promise.all(RESOURCE_KINDS.filter((k) => wanted.has(k)).map((k) => fetchers[k]()));
-  return snapshot;
+  let fetchedAt = Date.now();
+  await Promise.all(
+    RESOURCE_KINDS.filter((k) => wanted.has(k)).map(async (k) => {
+      const entry = cached<unknown>(contextName, namespace, k, listers[k] as () => Promise<unknown>);
+      fetchedAt = Math.min(fetchedAt, entry.fetchedAt);
+      (snapshot as Record<ResourceKind, unknown>)[k] = await entry.promise;
+    }),
+  );
+  return { snapshot, fetchedAt };
 }

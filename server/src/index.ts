@@ -13,6 +13,7 @@ import {
 } from "./config/store.js";
 import {
   getNormalizedSnapshot,
+  getNormalizedSnapshotWithAge,
   RESOURCE_KINDS,
   type ResourceKind,
   type NormalizedSnapshot,
@@ -27,6 +28,7 @@ import {
   type FieldMatrixRow,
 } from "./diff/engine.js";
 import { fetchNamespaceSnapshot } from "./k8s/fetch.js";
+import { invalidate } from "./k8s/cache.js";
 import {
   resolveForwardReferences,
   resolveReverseReferences,
@@ -147,7 +149,9 @@ async function resolveEnvironments(
 interface EnvFetchResult {
   env: Environment;
   status: "ok" | "error";
-  snapshot?: Awaited<ReturnType<typeof getNormalizedSnapshot>>;
+  snapshot?: NormalizedSnapshot;
+  /** Epoch ms the underlying cluster data was fetched (possibly from cache). */
+  fetchedAt?: number;
   error?: string;
 }
 
@@ -157,16 +161,33 @@ async function fetchSnapshotsSettled(
   kinds: readonly ResourceKind[] = RESOURCE_KINDS,
 ): Promise<EnvFetchResult[]> {
   const settled = await Promise.allSettled(
-    envs.map((env) => getNormalizedSnapshot(env.context, env.namespace, kinds)),
+    envs.map((env) => getNormalizedSnapshotWithAge(env.context, env.namespace, kinds)),
   );
   return settled.map((result, i) => {
     const env = envs[i];
     if (result.status === "fulfilled") {
-      return { env, status: "ok" as const, snapshot: result.value };
+      return {
+        env,
+        status: "ok" as const,
+        snapshot: result.value.snapshot,
+        fetchedAt: result.value.fetchedAt,
+      };
     }
     return { env, status: "error" as const, error: String(result.reason?.message ?? result.reason) };
   });
 }
+
+/**
+ * Drops cached cluster data for the given environments so the next request
+ * re-lists them. Environments sharing a (context, namespace) share the cache,
+ * which is correct: it's the same data.
+ */
+app.post<{ Body: { environmentIds: string[] } }>("/api/cache/refresh", async (req, reply) => {
+  const envs = await resolveEnvironments(req.body?.environmentIds, reply);
+  if (!envs) return;
+  for (const env of envs) invalidate(env.context, env.namespace);
+  return reply.code(204).send();
+});
 
 app.post<{ Body: { environmentIds: string[] } }>("/api/compare/overview", async (req, reply) => {
   const envs = await resolveEnvironments(req.body?.environmentIds, reply);
@@ -188,6 +209,7 @@ app.post<{ Body: { environmentIds: string[] } }>("/api/compare/overview", async 
       label: r.env.label,
       status: r.status,
       error: r.error,
+      fetchedAt: r.fetchedAt,
     })),
     kinds,
   };
@@ -251,6 +273,7 @@ app.post<{ Body: { environmentIds: string[] } }>("/api/compare/export", async (r
       label: r.env.label,
       status: r.status,
       error: r.error,
+      fetchedAt: r.fetchedAt,
     })),
     kinds,
     differences: collectAllDifferences(
@@ -280,6 +303,7 @@ app.post<{ Body: { environmentIds: string[] } }>("/api/compare/images", async (r
       label: r.env.label,
       status: r.status,
       error: r.error,
+      fetchedAt: r.fetchedAt,
     })),
     rows,
   };
@@ -345,7 +369,7 @@ async function prepareHelmComparison(body: HelmCompareInput) {
 
   const [renderResult, liveResult] = await Promise.allSettled([
     renderChart(chart.path, valuesFiles, releaseName?.trim() || chart.name, env.namespace),
-    getNormalizedSnapshot(env.context, env.namespace),
+    getNormalizedSnapshotWithAge(env.context, env.namespace),
   ]);
 
   if (renderResult.status === "rejected") {
@@ -358,8 +382,8 @@ async function prepareHelmComparison(body: HelmCompareInput) {
   const liveSnapshot =
     liveResult.status === "fulfilled"
       ? ignoreServerDefaults
-        ? reconcileLiveWithChart(liveResult.value, chartSnapshot)
-        : liveResult.value
+        ? reconcileLiveWithChart(liveResult.value.snapshot, chartSnapshot)
+        : liveResult.value.snapshot
       : null;
 
   const envs = [
@@ -368,6 +392,7 @@ async function prepareHelmComparison(body: HelmCompareInput) {
       id: env.id,
       label: env.label,
       status: liveSnapshot ? ("ok" as const) : ("error" as const),
+      fetchedAt: liveResult.status === "fulfilled" ? liveResult.value.fetchedAt : undefined,
       error:
         liveResult.status === "rejected"
           ? String(liveResult.reason?.message ?? liveResult.reason)

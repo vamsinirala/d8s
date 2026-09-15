@@ -171,6 +171,27 @@ export default function App() {
     }
   }
 
+  const [refreshing, setRefreshing] = useState(false);
+
+  /**
+   * Discards cached data (browser and server) for the selected environments,
+   * then re-runs whichever views are open so they show live cluster state.
+   */
+  async function handleRefresh() {
+    setRefreshing(true);
+    try {
+      await api.refreshCache(Array.from(selectedEnvIds));
+      await Promise.all([
+        overview ? handleCompare() : null,
+        imageVersions ? handleShowImageVersions() : null,
+      ]);
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setRefreshing(false);
+    }
+  }
+
   useEffect(() => {
     setBundleSelectedDeployment("");
     setBundle(null);
@@ -409,6 +430,13 @@ export default function App() {
                   ? "Loading…"
                   : `Image Versions (${selectedEnvIds.size})`}
               </button>
+              {(overview || imageVersions) && (
+                <DataFreshness
+                  fetchedAt={oldestFetchedAt([overview?.envs, imageVersions?.envs])}
+                  refreshing={refreshing}
+                  onRefresh={handleRefresh}
+                />
+              )}
             </div>
           </>
         )}
@@ -493,6 +521,60 @@ export default function App() {
         </section>
       )}
       </div>
+    </div>
+  );
+}
+
+/** The oldest fetch time across the given responses' environments. */
+function oldestFetchedAt(envLists: ({ fetchedAt?: number }[] | undefined)[]): number | null {
+  const times = envLists.flatMap((list) => list ?? []).flatMap((e) => (e.fetchedAt ? [e.fetchedAt] : []));
+  return times.length > 0 ? Math.min(...times) : null;
+}
+
+function formatAge(ms: number): string {
+  const minutes = Math.floor(ms / 60_000);
+  if (minutes < 1) return "just now";
+  if (minutes < 60) return `${minutes} min ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours} h ago`;
+  return `${Math.floor(hours / 24)} d ago`;
+}
+
+/**
+ * Shows how old the displayed data is, next to a Refresh button. Data may come
+ * from the server's or the browser's cache, so for a drift tool this must stay
+ * visible rather than silently showing yesterday's cluster.
+ */
+function DataFreshness({
+  fetchedAt,
+  refreshing,
+  onRefresh,
+}: {
+  fetchedAt: number | null;
+  refreshing: boolean;
+  onRefresh: () => void;
+}) {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const t = setInterval(() => setNow(Date.now()), 30_000);
+    return () => clearInterval(t);
+  }, []);
+  useEffect(() => setNow(Date.now()), [fetchedAt]);
+
+  const stale = fetchedAt !== null && now - fetchedAt > 15 * 60_000;
+  return (
+    <div className="data-freshness">
+      {fetchedAt !== null && (
+        <span
+          className={stale ? "data-age stale" : "data-age"}
+          title={`Fetched from the cluster at ${new Date(fetchedAt).toLocaleString()}`}
+        >
+          Data from {formatAge(now - fetchedAt)}
+        </span>
+      )}
+      <button className="refresh-btn" onClick={onRefresh} disabled={refreshing}>
+        {refreshing ? "Refreshing…" : "↻ Refresh"}
+      </button>
     </div>
   );
 }

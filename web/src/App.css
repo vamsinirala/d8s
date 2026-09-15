@@ -1011,3 +1011,30 @@ li.dangling {
   color: var(--danger);
   font-size: 13px;
 }
+
+/* "Data from 3 min ago · ↻ Refresh" — pushed to the right of the action row. */
+.data-freshness {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-left: auto;
+}
+
+.data-age {
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
+.data-age.stale {
+  color: var(--warning-text);
+}
+
+.refresh-btn {
+  background: transparent;
+  color: var(--text);
+  border: 1px solid var(--border);
+}
+
+.refresh-btn:hover:not(:disabled) {
+  background: var(--bg, #f5f6f8);
+}

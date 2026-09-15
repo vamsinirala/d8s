@@ -110,7 +110,15 @@ automatically.
 
 - Environments you add are saved locally to `~/.d8s/environments.json` — nothing is
   sent anywhere except to your own kubeconfig's clusters.
-- There's no database. Every comparison fetches live from the cluster(s) you select.
+- There's no database. Cluster data is cached in two layers so clicking around doesn't
+  re-list every namespace each time:
+  - **Server memory** — each resource kind per namespace is cached for 5 minutes
+    (set `D8S_CACHE_TTL_SECONDS`; `0` disables). Never written to disk.
+  - **Browser (IndexedDB)** — the last comparison results are kept for 24 hours, so a
+    reload opens instantly. Secret values are hashed before they reach the browser, but
+    other resource data (ConfigMaps, specs) is stored in your browser profile.
+- The UI always shows how old the data is ("Data from 3 min ago"). **↻ Refresh** clears
+  both caches and re-fetches from the cluster.
 
 ## Project layout
 

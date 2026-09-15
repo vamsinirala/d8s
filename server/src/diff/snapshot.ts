@@ -1,4 +1,4 @@
-import { fetchNamespaceSnapshot } from "../k8s/fetch.js";
+import { fetchNamespaceSnapshotWithAge } from "../k8s/fetch.js";
 import { normalizeResource } from "../k8s/normalize.js";
 import { hashSecretData } from "./secrets.js";
 
@@ -24,17 +24,29 @@ export async function getNormalizedSnapshot(
   namespace: string,
   kinds: readonly ResourceKind[] = RESOURCE_KINDS,
 ): Promise<NormalizedSnapshot> {
-  const raw = await fetchNamespaceSnapshot(context, namespace, kinds);
+  return (await getNormalizedSnapshotWithAge(context, namespace, kinds)).snapshot;
+}
+
+/** Normalization runs on every call; only the raw cluster listing is cached. */
+export async function getNormalizedSnapshotWithAge(
+  context: string,
+  namespace: string,
+  kinds: readonly ResourceKind[] = RESOURCE_KINDS,
+): Promise<{ snapshot: NormalizedSnapshot; fetchedAt: number }> {
+  const { snapshot: raw, fetchedAt } = await fetchNamespaceSnapshotWithAge(context, namespace, kinds);
   return {
-    deployments: raw.deployments.map(normalizeResource),
-    statefulSets: raw.statefulSets.map(normalizeResource),
-    daemonSets: raw.daemonSets.map(normalizeResource),
-    configMaps: raw.configMaps.map(normalizeResource),
-    secrets: raw.secrets.map(hashSecretData).map(normalizeResource),
-    services: raw.services.map(normalizeResource),
-    pvcs: raw.pvcs.map(normalizeResource),
-    ingresses: raw.ingresses.map(normalizeResource),
-    pdbs: raw.pdbs.map(normalizeResource),
-    hpas: raw.hpas.map(normalizeResource),
+    fetchedAt,
+    snapshot: {
+      deployments: raw.deployments.map(normalizeResource),
+      statefulSets: raw.statefulSets.map(normalizeResource),
+      daemonSets: raw.daemonSets.map(normalizeResource),
+      configMaps: raw.configMaps.map(normalizeResource),
+      secrets: raw.secrets.map(hashSecretData).map(normalizeResource),
+      services: raw.services.map(normalizeResource),
+      pvcs: raw.pvcs.map(normalizeResource),
+      ingresses: raw.ingresses.map(normalizeResource),
+      pdbs: raw.pdbs.map(normalizeResource),
+      hpas: raw.hpas.map(normalizeResource),
+    },
   };
 }

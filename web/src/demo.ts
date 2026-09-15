@@ -53,10 +53,13 @@ let environments: Environment[] = [
 
 const DEPLOYMENTS = ["payments-api", "checkout-api", "worker-cron"];
 
+/** Pretend the demo data was fetched a few minutes ago, until "refreshed". */
+let demoFetchedAt = Date.now() - 4 * 60 * 1000;
+
 function envStatuses(ids: string[]) {
   return ids.map((id) => {
     const env = environments.find((e) => e.id === id);
-    return { id, label: env?.label ?? id, status: "ok" as const };
+    return { id, label: env?.label ?? id, status: "ok" as const, fetchedAt: demoFetchedAt };
   });
 }
 
@@ -375,6 +378,10 @@ function buildDifferences(
 }
 
 export const demoApi = {
+  refreshCache: (_environmentIds: string[]) => {
+    demoFetchedAt = Date.now();
+    return delay(undefined as void, 200);
+  },
   helmCheck: () => delay({ available: true, version: "v4.1.1" }, 150),
   helmInspect: (_chartPath: string) => delay(DEMO_CHART, 300),
   helmLint: (_chartPath: string, _valuesFiles: string[]) =>
