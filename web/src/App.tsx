@@ -635,6 +635,29 @@ function ExportEverythingButton({
   );
 }
 
+/**
+ * Splits a resource's differing fields into values that disagree (amber) and
+ * fields missing from some environments (blue) — the same two kinds, and
+ * colours, as the field-level diff legend. The pills sum to the total.
+ */
+function DiffPills({ total, missing }: { total: number; missing: number }) {
+  const differ = total - missing;
+  return (
+    <span className="diff-pills">
+      {differ > 0 && (
+        <span className="diff-badge" title="Fields set everywhere, with different values">
+          {differ} differ
+        </span>
+      )}
+      {missing > 0 && (
+        <span className="missing-badge" title="Fields set in some environments and absent from others">
+          {missing} missing
+        </span>
+      )}
+    </span>
+  );
+}
+
 function KindSection({
   kind,
   rows,
@@ -698,7 +721,7 @@ function KindSection({
                     ) : row.diffFieldCount === 0 ? (
                       <span className="ok-text">identical</span>
                     ) : (
-                      <span className="diff-badge">{row.diffFieldCount} differ</span>
+                      <DiffPills total={row.diffFieldCount} missing={row.missingFieldCount ?? 0} />
                     )}
                   </td>
                 </tr>

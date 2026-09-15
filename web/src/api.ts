@@ -43,6 +43,8 @@ export interface OverviewRow {
   presentEnvIds: string[];
   missingEnvIds: string[];
   diffFieldCount: number | null;
+  /** Of diffFieldCount, paths set in some environments but absent from others. */
+  missingFieldCount: number | null;
 }
 
 export interface OverviewResponse {

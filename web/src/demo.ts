@@ -98,6 +98,7 @@ function buildOverview(ids: string[]): OverviewResponse {
           presentEnvIds: both,
           missingEnvIds: [],
           diffFieldCount: 42,
+          missingFieldCount: 3,
         },
         {
           canonicalName: "checkout-api",
@@ -105,6 +106,7 @@ function buildOverview(ids: string[]): OverviewResponse {
           presentEnvIds: [b],
           missingEnvIds: [a],
           diffFieldCount: null,
+          missingFieldCount: null,
         },
         {
           canonicalName: "worker-cron",
@@ -112,6 +114,7 @@ function buildOverview(ids: string[]): OverviewResponse {
           presentEnvIds: both,
           missingEnvIds: [],
           diffFieldCount: 0,
+          missingFieldCount: 0,
         },
       ],
       configMaps: [
@@ -121,6 +124,7 @@ function buildOverview(ids: string[]): OverviewResponse {
           presentEnvIds: both,
           missingEnvIds: [],
           diffFieldCount: 1,
+          missingFieldCount: 0,
         },
         {
           canonicalName: "payments-config",
@@ -128,6 +132,7 @@ function buildOverview(ids: string[]): OverviewResponse {
           presentEnvIds: both,
           missingEnvIds: [],
           diffFieldCount: 6,
+          missingFieldCount: 2,
         },
       ],
       services: [
@@ -137,6 +142,7 @@ function buildOverview(ids: string[]): OverviewResponse {
           presentEnvIds: both,
           missingEnvIds: [],
           diffFieldCount: 2,
+          missingFieldCount: 0,
         },
       ],
     },
@@ -328,6 +334,7 @@ function buildHelmCompare(environmentId: string): HelmCompareResponse {
           presentEnvIds: both,
           missingEnvIds: [],
           diffFieldCount: 2,
+          missingFieldCount: 0,
         },
         {
           canonicalName: "payments-worker",
@@ -335,6 +342,7 @@ function buildHelmCompare(environmentId: string): HelmCompareResponse {
           presentEnvIds: ["chart"],
           missingEnvIds: [environmentId],
           diffFieldCount: null,
+          missingFieldCount: null,
         },
       ],
       services: [
@@ -344,6 +352,7 @@ function buildHelmCompare(environmentId: string): HelmCompareResponse {
           presentEnvIds: both,
           missingEnvIds: [],
           diffFieldCount: 0,
+          missingFieldCount: 0,
         },
       ],
       configMaps: [
@@ -353,6 +362,7 @@ function buildHelmCompare(environmentId: string): HelmCompareResponse {
           presentEnvIds: both,
           missingEnvIds: [],
           diffFieldCount: 1,
+          missingFieldCount: 0,
         },
       ],
     },

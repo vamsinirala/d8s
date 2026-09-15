@@ -103,6 +103,7 @@ export async function exportEverything(args: {
     headerCell("Resource"),
     ...envs.map((e) => headerCell(e.label)),
     headerCell("Fields differing"),
+    headerCell("Fields missing"),
   ];
   const summaryRows: Row[] = [];
   for (const [kind, rows] of Object.entries(kinds)) {
@@ -119,6 +120,11 @@ export async function exportEverything(args: {
           align: "left" as const,
           // Flag anything that actually differs so it stands out at a glance.
           backgroundColor: r.diffFieldCount ? KIND_FILL.value : undefined,
+        },
+        {
+          value: r.missingFieldCount === null ? "n/a" : String(r.missingFieldCount),
+          align: "left" as const,
+          backgroundColor: r.missingFieldCount ? KIND_FILL.presence : undefined,
         },
       ]);
     }
@@ -164,7 +170,7 @@ export async function exportEverything(args: {
     {
       name: "Summary",
       data: [summaryHeader, ...summaryRows],
-      columns: [{ width: 22 }, { width: 34 }, ...envs.map(() => ({ width: 16 })), { width: 18 }],
+      columns: [{ width: 22 }, { width: 34 }, ...envs.map(() => ({ width: 16 })), { width: 18 }, { width: 18 }],
     },
     {
       name: "All differences",

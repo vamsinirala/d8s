@@ -36,17 +36,25 @@ export interface OverviewRow {
   missingEnvIds: string[];
   /** Count of field paths that differ across envs where this resource is present. Null if present in <2 envs. */
   diffFieldCount: number | null;
+  /** Of diffFieldCount, how many paths are set in some environments and absent
+   *  from others (the rest are values that disagree). */
+  missingFieldCount: number | null;
 }
 
-function countDifferingPaths(flattenedList: Record<string, unknown>[]): number {
+function countDifferingPaths(flattenedList: Record<string, unknown>[]): { differ: number; missing: number } {
   const allPaths = new Set<string>();
   for (const flat of flattenedList) for (const path of Object.keys(flat)) allPaths.add(path);
-  let count = 0;
+  let differ = 0;
+  let missing = 0;
   for (const path of allPaths) {
     const values = flattenedList.map((flat) => (path in flat ? JSON.stringify(flat[path]) : undefined));
-    if (values.some((v) => v !== values[0])) count++;
+    if (values.some((v) => v !== values[0])) {
+      differ++;
+      // Same precedence as buildFieldMatrix: absent anywhere makes it a presence difference.
+      if (values.includes(undefined)) missing++;
+    }
   }
-  return count;
+  return { differ, missing };
 }
 
 /**
@@ -116,11 +124,21 @@ export function buildOverview(inputs: EnvResourceInput[]): OverviewRow[] {
     const missingEnvIds = allEnvIds.filter((id) => !presentEnvIds.includes(id));
 
     let diffFieldCount: number | null = null;
+    let missingFieldCount: number | null = null;
     if (presentEnvIds.length >= 2) {
-      diffFieldCount = countDifferingPaths(presentEnvIds.map((id) => flatten(envMap.get(id))));
+      const counts = countDifferingPaths(presentEnvIds.map((id) => flatten(envMap.get(id))));
+      diffFieldCount = counts.differ;
+      missingFieldCount = counts.missing;
     }
 
-    rows.push({ canonicalName: canonical, namesByEnv, presentEnvIds, missingEnvIds, diffFieldCount });
+    rows.push({
+      canonicalName: canonical,
+      namesByEnv,
+      presentEnvIds,
+      missingEnvIds,
+      diffFieldCount,
+      missingFieldCount,
+    });
   }
 
   return rows.sort((a, b) => a.canonicalName.localeCompare(b.canonicalName));

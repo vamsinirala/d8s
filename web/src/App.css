@@ -34,6 +34,8 @@
      red-green colour blindness */
   --presence-row: #f2f6fd;
   --presence-border: #6b8fd4;
+  --presence-soft: #e8effb;
+  --presence-text: #2f5597;
 
   --neutral-soft: #eef0f4;
   --neutral-text: #4b5563;
@@ -1037,4 +1039,21 @@ li.dangling {
 
 .refresh-btn:hover:not(:disabled) {
   background: var(--bg, #f5f6f8);
+}
+
+.diff-pills {
+  display: inline-flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+/* Blue counterpart to .diff-badge, matching the "missing in some" row colour. */
+.missing-badge {
+  background: var(--presence-soft);
+  color: var(--presence-text);
+  padding: 0.2rem 0.6rem;
+  border-radius: var(--radius-pill);
+  font-size: 0.78rem;
+  font-weight: 600;
+  white-space: nowrap;
 }
