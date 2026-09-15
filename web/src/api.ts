@@ -45,6 +45,19 @@ export interface OverviewRow {
   diffFieldCount: number | null;
   /** Of diffFieldCount, paths set in some environments but absent from others. */
   missingFieldCount: number | null;
+  /** The paths behind the counts, so ignore rules can be applied client-side. */
+  valuePaths: string[] | null;
+  missingPaths: string[] | null;
+}
+
+/** A reviewed difference to hide. resource null = every resource of the kind;
+ *  path null = the whole resource; a path also covers everything beneath it. */
+export interface IgnoreRule {
+  id: string;
+  kind: string;
+  resource: string | null;
+  path: string | null;
+  createdAt: number;
 }
 
 export interface OverviewResponse {
@@ -223,6 +236,21 @@ const realApi = {
     });
     if (!r.ok) throw new Error(`${r.status} ${r.statusText}`);
   },
+  listIgnores: () => fetch("/api/ignores").then((r) => json<IgnoreRule[]>(r)),
+  addIgnore: (rule: { kind: string; resource: string | null; path: string | null }) =>
+    fetch("/api/ignores", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(rule),
+    }).then((r) => json<IgnoreRule>(r)),
+  removeIgnore: (id: string) =>
+    fetch(`/api/ignores/${encodeURIComponent(id)}`, { method: "DELETE" }).then((r) => {
+      if (!r.ok) throw new Error(`${r.status} ${r.statusText}`);
+    }),
+  clearIgnores: () =>
+    fetch("/api/ignores", { method: "DELETE" }).then((r) => {
+      if (!r.ok) throw new Error(`${r.status} ${r.statusText}`);
+    }),
   helmCheck: () => fetch("/api/helm/check").then((r) => json<HelmAvailability>(r)),
   helmInspect: (chartPath: string) =>
     fetch("/api/helm/inspect", {

@@ -12,6 +12,12 @@ mix of both.
 
 - **Multi-environment comparison** — pick any set of environments and see, for every
   resource kind, what's present/missing in each one and how many fields differ.
+- **Filter by kind of drift** — narrow the comparison to resources whose values
+  differ, that have missing fields, or that are missing from an environment entirely.
+- **Ignore known differences** — hide a field on one resource, a field across every
+  resource of a kind (e.g. `metadata.namespace` on all Deployments), or a whole
+  resource. Counts, filters and Excel exports all respect ignores; hidden items can be
+  shown again with "Show ignored". Rules persist until you remove them.
 - **Field-level diff** — drill into any matched resource to see a path-by-path
   comparison across environments, with filters for probes, resource limits, env
   vars, volumes, images, and config data.
@@ -110,6 +116,9 @@ automatically.
 
 - Environments you add are saved locally to `~/.d8s/environments.json` — nothing is
   sent anywhere except to your own kubeconfig's clusters.
+- Ignore rules are saved to `~/.d8s/ignores.json`. It's a plain JSON file, so there's no
+  database to install, it survives clearing browser data, and you can copy it to share
+  a set of ignores with a teammate.
 - There's no database. Cluster data is cached in two layers so clicking around doesn't
   re-list every namespace each time:
   - **Server memory** — each resource kind per namespace is cached for 5 minutes

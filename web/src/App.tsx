@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { DiffEditor } from "@monaco-editor/react";
 import YAML from "yaml";
 import {
@@ -17,6 +17,14 @@ import {
 import { HelmView } from "./HelmView";
 import { IS_DEMO } from "./demo";
 import { exportEverything, exportFieldDiff, exportImageVersions } from "./excel";
+import {
+  IgnoreProvider,
+  effectiveCounts,
+  isPathIgnored,
+  isResourceIgnored,
+  rulesCoveringPath,
+  useIgnores,
+} from "./ignores";
 import "./App.css";
 
 const KIND_LABELS: Record<ResourceKind, string> = {
@@ -245,6 +253,7 @@ export default function App() {
   }
 
   return (
+    <IgnoreProvider>
     <div className="app">
       <header className="app-header">
         <span className="logo-mark">D8</span>
@@ -302,21 +311,17 @@ export default function App() {
               {RESOURCE_KINDS.filter((k) => res.kinds[k]?.length > 0).length === 0 ? (
                 <p className="empty">The chart rendered no comparable resources.</p>
               ) : (
-                RESOURCE_KINDS.filter((k) => res.kinds[k]?.length > 0).map((kind) => (
-                  <KindSection
-                    key={kind}
-                    kind={kind}
-                    rows={res.kinds[kind]}
-                    envs={res.envs}
-                    expanded={drill.expanded}
-                    onOpenResource={drill.onOpenResource}
-                    fieldMatrix={drill.fieldMatrix}
-                    fieldMatrixLoading={drill.loading}
-                    fieldMatrixError={drill.error}
-                    activeFilter={drill.activeFilter}
-                    onSetFilter={drill.onSetFilter}
-                  />
-                ))
+                <ComparisonBody
+                  kinds={res.kinds}
+                  envs={res.envs}
+                  expanded={drill.expanded}
+                  onOpenResource={drill.onOpenResource}
+                  fieldMatrix={drill.fieldMatrix}
+                  fieldMatrixLoading={drill.loading}
+                  fieldMatrixError={drill.error}
+                  activeFilter={drill.activeFilter}
+                  onSetFilter={drill.onSetFilter}
+                />
               )}
             </section>
           )}
@@ -503,25 +508,22 @@ export default function App() {
             ))}
           </div>
 
-          {RESOURCE_KINDS.filter((k) => overview.kinds[k]?.length > 0).map((kind) => (
-            <KindSection
-              key={kind}
-              kind={kind}
-              rows={overview.kinds[kind]}
-              envs={overview.envs}
-              expanded={expanded}
-              onOpenResource={handleOpenResource}
-              fieldMatrix={fieldMatrix}
-              fieldMatrixLoading={fieldMatrixLoading}
-              fieldMatrixError={fieldMatrixError}
-              activeFilter={activeFilter}
-              onSetFilter={setActiveFilter}
-            />
-          ))}
+          <ComparisonBody
+            kinds={overview.kinds}
+            envs={overview.envs}
+            expanded={expanded}
+            onOpenResource={handleOpenResource}
+            fieldMatrix={fieldMatrix}
+            fieldMatrixLoading={fieldMatrixLoading}
+            fieldMatrixError={fieldMatrixError}
+            activeFilter={activeFilter}
+            onSetFilter={setActiveFilter}
+          />
         </section>
       )}
       </div>
     </div>
+    </IgnoreProvider>
   );
 }
 
@@ -598,6 +600,7 @@ function ExportEverythingButton({
 }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const { rules } = useIgnores();
 
   async function handleClick() {
     setBusy(true);
@@ -612,6 +615,7 @@ function ExportEverythingButton({
         kinds: data.kinds,
         differences: data.differences,
         images: imageData,
+        ignores: rules,
       });
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -640,8 +644,7 @@ function ExportEverythingButton({
  * fields missing from some environments (blue) — the same two kinds, and
  * colours, as the field-level diff legend. The pills sum to the total.
  */
-function DiffPills({ total, missing }: { total: number; missing: number }) {
-  const differ = total - missing;
+function DiffPills({ differ, missing }: { differ: number; missing: number }) {
   return (
     <span className="diff-pills">
       {differ > 0 && (
@@ -658,6 +661,186 @@ function DiffPills({ total, missing }: { total: number; missing: number }) {
   );
 }
 
+type OverviewFilter = "all" | "differences" | "value" | "missingFields" | "missingEnv";
+
+const OVERVIEW_FILTERS: { key: OverviewFilter; label: string; title: string }[] = [
+  { key: "all", label: "All", title: "Every resource" },
+  { key: "differences", label: "Differences", title: "Anything that differs, or is missing from an environment" },
+  { key: "value", label: "Values differ", title: "Fields set everywhere, with different values" },
+  { key: "missingFields", label: "Missing fields", title: "Fields set in some environments and absent from others" },
+  { key: "missingEnv", label: "Missing from an env", title: "Resources that don't exist in every environment" },
+];
+
+type ComparisonProps = {
+  kinds: Record<ResourceKind, OverviewRow[]>;
+  envs: OverviewResponse["envs"];
+  expanded: { kind: ResourceKind; canonicalName: string } | null;
+  onOpenResource: (kind: ResourceKind, canonicalName: string) => void;
+  fieldMatrix: ResourceCompareResponse | null;
+  fieldMatrixLoading: boolean;
+  fieldMatrixError: string | null;
+  activeFilter: string | null;
+  onSetFilter: (f: string | null) => void;
+};
+
+/**
+ * Everything under a comparison's heading, shared by the environment and Helm
+ * views: the resource-level filter, ignore management, and a table per kind.
+ * Ignore rules are applied here, so counts and filters reflect them.
+ */
+function ComparisonBody({ kinds, envs, ...rest }: ComparisonProps) {
+  const { rules, error: ignoreError } = useIgnores();
+  const [filter, setFilter] = useState<OverviewFilter>("all");
+  const [showIgnored, setShowIgnored] = useState(false);
+
+  const matches = useMemo(() => {
+    const test = (kind: ResourceKind, row: OverviewRow, f: OverviewFilter): boolean => {
+      const c = effectiveCounts(rules, kind, row);
+      const missingEnv = row.missingEnvIds.length > 0;
+      switch (f) {
+        case "all":
+          return true;
+        case "differences":
+          return missingEnv || (c !== null && c.value + c.missing > 0);
+        case "value":
+          return (c?.value ?? 0) > 0;
+        case "missingFields":
+          return (c?.missing ?? 0) > 0;
+        case "missingEnv":
+          return missingEnv;
+      }
+    };
+    return test;
+  }, [rules]);
+
+  /** Rows per kind that survive the ignore toggle (before the filter tab). */
+  const candidates = useMemo(() => {
+    const out = {} as Record<ResourceKind, OverviewRow[]>;
+    for (const kind of RESOURCE_KINDS) {
+      out[kind] = (kinds[kind] ?? []).filter(
+        (r) => showIgnored || !isResourceIgnored(rules, kind, r.canonicalName),
+      );
+    }
+    return out;
+  }, [kinds, rules, showIgnored]);
+
+  const counts = useMemo(() => {
+    const out = {} as Record<OverviewFilter, number>;
+    for (const { key } of OVERVIEW_FILTERS) {
+      out[key] = RESOURCE_KINDS.reduce(
+        (n, kind) => n + candidates[kind].filter((r) => matches(kind, r, key)).length,
+        0,
+      );
+    }
+    return out;
+  }, [candidates, matches]);
+
+  const ignoredResourceCount = useMemo(
+    () =>
+      RESOURCE_KINDS.reduce(
+        (n, kind) => n + (kinds[kind] ?? []).filter((r) => isResourceIgnored(rules, kind, r.canonicalName)).length,
+        0,
+      ),
+    [kinds, rules],
+  );
+
+  const visibleKinds = RESOURCE_KINDS.map((kind) => ({
+    kind,
+    rows: candidates[kind].filter((r) => matches(kind, r, filter)),
+  })).filter((k) => k.rows.length > 0);
+
+  return (
+    <>
+      <div className="overview-filter-bar">
+        <div className="filter-row" role="group" aria-label="Filter resources">
+          {OVERVIEW_FILTERS.map(({ key, label, title }) => (
+            <button
+              key={key}
+              className={filter === key ? "tab active" : "tab"}
+              onClick={() => setFilter(key)}
+              title={title}
+              aria-pressed={filter === key}
+            >
+              {label} ({counts[key]})
+            </button>
+          ))}
+        </div>
+        {(rules.length > 0 || ignoredResourceCount > 0) && (
+          <label className="show-ignored-toggle">
+            <input
+              type="checkbox"
+              checked={showIgnored}
+              onChange={(e) => setShowIgnored(e.target.checked)}
+            />
+            Show ignored{ignoredResourceCount > 0 ? ` resources (${ignoredResourceCount})` : ""}
+          </label>
+        )}
+      </div>
+
+      {ignoreError && <div className="error">{ignoreError}</div>}
+      <IgnoreManager />
+
+      {visibleKinds.length === 0 ? (
+        <p className="empty">No resources match this filter.</p>
+      ) : (
+        visibleKinds.map(({ kind, rows }) => (
+          <KindSection
+            key={kind}
+            kind={kind}
+            rows={rows}
+            envs={envs}
+            showIgnored={showIgnored}
+            {...rest}
+          />
+        ))
+      )}
+    </>
+  );
+}
+
+/** Lists every ignore rule, with per-rule removal and "clear all". */
+function IgnoreManager() {
+  const { rules, remove, clear } = useIgnores();
+  if (rules.length === 0) return null;
+
+  const sorted = [...rules].sort((a, b) => b.createdAt - a.createdAt);
+  return (
+    <details className="ignore-manager">
+      <summary>Ignored ({rules.length})</summary>
+      <ul className="ignore-list">
+        {sorted.map((rule) => (
+          <li key={rule.id}>
+            <span>
+              {KIND_LABELS[rule.kind as ResourceKind] ?? rule.kind} ·{" "}
+              <code>{rule.resource ?? "all"}</code>
+              {rule.path !== null ? (
+                <>
+                  {" "}· <code>{rule.path}</code>
+                </>
+              ) : (
+                " · whole resource"
+              )}
+            </span>
+            <button className="ignore-btn" onClick={() => remove(rule.id)}>
+              Unignore
+            </button>
+          </li>
+        ))}
+      </ul>
+      <div className="ignore-manager-actions">
+        <button
+          className="ignore-btn"
+          onClick={() => {
+            if (window.confirm(`Remove all ${rules.length} ignore rules?`)) void clear();
+          }}
+        >
+          Clear all
+        </button>
+      </div>
+    </details>
+  );
+}
+
 function KindSection({
   kind,
   rows,
@@ -669,20 +852,31 @@ function KindSection({
   fieldMatrixError,
   activeFilter,
   onSetFilter,
-}: {
+  showIgnored,
+}: Omit<ComparisonProps, "kinds"> & {
   kind: ResourceKind;
   rows: OverviewRow[];
-  envs: OverviewResponse["envs"];
-  expanded: { kind: ResourceKind; canonicalName: string } | null;
-  onOpenResource: (kind: ResourceKind, canonicalName: string) => void;
-  fieldMatrix: ResourceCompareResponse | null;
-  fieldMatrixLoading: boolean;
-  fieldMatrixError: string | null;
-  activeFilter: string | null;
-  onSetFilter: (f: string | null) => void;
+  showIgnored: boolean;
 }) {
+  const { rules, add, remove } = useIgnores();
+
+  // The expanded field table's header docks directly beneath this table's
+  // header, so it needs that header's real height (it varies with font size
+  // and zoom) rather than a guess.
+  const sectionRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const section = sectionRef.current;
+    const head = section?.querySelector<HTMLElement>(":scope > .overview-table-scroll > .overview-table > thead");
+    if (!section || !head) return;
+    const sync = () => section.style.setProperty("--overview-head-h", `${head.offsetHeight}px`);
+    sync();
+    const observer = new ResizeObserver(sync);
+    observer.observe(head);
+    return () => observer.disconnect();
+  }, []);
+
   return (
-    <div className="kind-section">
+    <div className="kind-section" ref={sectionRef}>
       <h3>
         {KIND_LABELS[kind]} ({rows.length})
       </h3>
@@ -703,7 +897,11 @@ function KindSection({
             return (
               <Fragment key={row.canonicalName}>
                 <tr
-                  className="overview-row"
+                  className={
+                    isResourceIgnored(rules, kind, row.canonicalName)
+                      ? "overview-row is-ignored"
+                      : "overview-row"
+                  }
                   onClick={() => onOpenResource(kind, row.canonicalName)}
                 >
                   <td className="resource-name">{row.canonicalName}</td>
@@ -716,13 +914,25 @@ function KindSection({
                     );
                   })}
                   <td>
-                    {row.diffFieldCount === null ? (
-                      <span className="dim">n/a</span>
-                    ) : row.diffFieldCount === 0 ? (
-                      <span className="ok-text">identical</span>
-                    ) : (
-                      <DiffPills total={row.diffFieldCount} missing={row.missingFieldCount ?? 0} />
-                    )}
+                    <OverviewDiffCell
+                      kind={kind}
+                      row={row}
+                      ignored={isResourceIgnored(rules, kind, row.canonicalName)}
+                      counts={effectiveCounts(rules, kind, row)}
+                      onIgnore={() => add({ kind, resource: row.canonicalName, path: null })}
+                      onUnignore={() =>
+                        Promise.all(
+                          rules
+                            .filter(
+                              (r) =>
+                                r.path === null &&
+                                r.kind === kind &&
+                                (r.resource === row.canonicalName || r.resource === null),
+                            )
+                            .map((r) => remove(r.id)),
+                        )
+                      }
+                    />
                   </td>
                 </tr>
                 {isOpen && (
@@ -737,6 +947,7 @@ function KindSection({
                         envs={envs}
                         activeFilter={activeFilter}
                         onSetFilter={onSetFilter}
+                        defaultShowIgnored={showIgnored}
                       />
                     </td>
                   </tr>
@@ -751,6 +962,64 @@ function KindSection({
   );
 }
 
+function OverviewDiffCell({
+  row,
+  ignored,
+  counts,
+  onIgnore,
+  onUnignore,
+}: {
+  kind: ResourceKind;
+  row: OverviewRow;
+  ignored: boolean;
+  counts: { value: number; missing: number; ignored: number } | null;
+  onIgnore: () => void;
+  onUnignore: () => void;
+}) {
+  // Buttons live inside a clickable row; don't let them also toggle the drill-down.
+  const stop = (fn: () => void) => (e: React.MouseEvent) => {
+    e.stopPropagation();
+    fn();
+  };
+
+  if (ignored) {
+    return (
+      <span className="diff-pills">
+        <span className="ignored-badge">ignored</span>
+        <button className="ignore-btn" onClick={stop(onUnignore)}>
+          Unignore
+        </button>
+      </span>
+    );
+  }
+
+  return (
+    <span className="diff-pills">
+      {counts === null ? (
+        <span className="dim">n/a</span>
+      ) : counts.value + counts.missing === 0 ? (
+        <span className="ok-text">identical</span>
+      ) : (
+        <DiffPills differ={counts.value} missing={counts.missing} />
+      )}
+      {counts !== null && counts.ignored > 0 && (
+        <span className="dim" title="Differing fields hidden by ignore rules">
+          {counts.ignored} ignored
+        </span>
+      )}
+      <span className="row-actions">
+        <button
+          className="ignore-btn"
+          onClick={stop(onIgnore)}
+          title={`Hide ${row.canonicalName} until unignored`}
+        >
+          Ignore
+        </button>
+      </span>
+    </span>
+  );
+}
+
 function FieldMatrixView({
   resourceName,
   kind,
@@ -760,6 +1029,7 @@ function FieldMatrixView({
   envs,
   activeFilter,
   onSetFilter,
+  defaultShowIgnored,
 }: {
   resourceName: string;
   kind: ResourceKind;
@@ -769,7 +1039,20 @@ function FieldMatrixView({
   envs: OverviewResponse["envs"];
   activeFilter: string | null;
   onSetFilter: (f: string | null) => void;
+  defaultShowIgnored: boolean;
 }) {
+  const { rules, add, remove } = useIgnores();
+  const [showIgnored, setShowIgnored] = useState(defaultShowIgnored);
+
+  /** Ignored rows are dropped from the view and every count unless shown. */
+  const ignoredPaths = useMemo(
+    () => new Set((data?.rows ?? []).filter((r) => isPathIgnored(rules, kind, resourceName, r.path)).map((r) => r.path)),
+    [data, rules, kind, resourceName],
+  );
+  const activeRows = useMemo(
+    () => (data?.rows ?? []).filter((r) => showIgnored || !ignoredPaths.has(r.path)),
+    [data, ignoredPaths, showIgnored],
+  );
   const [viewMode, setViewMode] = useState<"table" | "yaml">("table");
   const [yamlLeftEnv, setYamlLeftEnv] = useState<string>("");
   const [yamlRightEnv, setYamlRightEnv] = useState<string>("");
@@ -784,21 +1067,21 @@ function FieldMatrixView({
   /** Counts for the diff-kind filter, always over the full row set so the numbers
    *  don't shift as other filters are applied. */
   const diffCounts = useMemo(() => {
-    const rows = data?.rows ?? [];
+    const rows = activeRows;
     return {
       all: rows.length,
       differences: rows.filter((r) => r.differs).length,
       value: rows.filter((r) => r.diffKind === "value").length,
       presence: rows.filter((r) => r.diffKind === "presence").length,
     };
-  }, [data]);
+  }, [activeRows]);
 
   // Category, difference kind and search all narrow the list together.
   const visibleRows = useMemo(() => {
     if (!data) return [];
     const category = CATEGORY_FILTERS.find(([name]) => name === activeFilter);
     const needle = search.trim().toLowerCase();
-    return data.rows.filter((r) => {
+    return activeRows.filter((r) => {
       if (category && !category[1].test(r.path)) return false;
       if (diffFilter === "differences" && !r.differs) return false;
       if (diffFilter === "value" && r.diffKind !== "value") return false;
@@ -806,7 +1089,7 @@ function FieldMatrixView({
       if (needle && !r.path.toLowerCase().includes(needle)) return false;
       return true;
     });
-  }, [data, activeFilter, diffFilter, search]);
+  }, [data, activeRows, activeFilter, diffFilter, search]);
 
   useEffect(() => {
     if (!data) return;
@@ -892,6 +1175,17 @@ function FieldMatrixView({
           </div>
         )}
 
+        {ignoredPaths.size > 0 && (
+          <label className="show-ignored-toggle">
+            <input
+              type="checkbox"
+              checked={showIgnored}
+              onChange={(e) => setShowIgnored(e.target.checked)}
+            />
+            Show ignored ({ignoredPaths.size})
+          </label>
+        )}
+
         <input
           type="search"
           className="path-search"
@@ -925,11 +1219,16 @@ function FieldMatrixView({
               {envs.map((e) => (
                 <th key={e.id}>{e.label}</th>
               ))}
+              <th className="actions-col">
+                <span className="visually-hidden">Actions</span>
+              </th>
             </tr>
           </thead>
           <tbody>
-            {visibleRows.map((row: FieldMatrixRow) => (
-              <tr key={row.path} className={`diff-${row.diffKind}`}>
+            {visibleRows.map((row: FieldMatrixRow) => {
+              const ignored = ignoredPaths.has(row.path);
+              return (
+              <tr key={row.path} className={`diff-${row.diffKind}${ignored ? " is-ignored" : ""}`}>
                 <td className="path-cell">{renderPath(row.path)}</td>
                 {envs.map((e) => {
                   const cell = row.cells[e.id];
@@ -943,8 +1242,40 @@ function FieldMatrixView({
                     </td>
                   );
                 })}
+                <td className="actions-col">
+                  {ignored ? (
+                    <button
+                      className="ignore-btn"
+                      onClick={() =>
+                        Promise.all(
+                          rulesCoveringPath(rules, kind, resourceName, row.path).map((r) => remove(r.id)),
+                        )
+                      }
+                    >
+                      Unignore
+                    </button>
+                  ) : row.differs ? (
+                    <span className="row-actions">
+                      <button
+                        className="ignore-btn"
+                        onClick={() => add({ kind, resource: resourceName, path: row.path })}
+                        title={`Ignore this field on ${resourceName}`}
+                      >
+                        Ignore
+                      </button>
+                      <button
+                        className="ignore-btn"
+                        onClick={() => add({ kind, resource: null, path: row.path })}
+                        title={`Ignore this field on every ${KIND_LABELS[kind]} resource`}
+                      >
+                        All {KIND_LABELS[kind]}
+                      </button>
+                    </span>
+                  ) : null}
+                </td>
               </tr>
-            ))}
+              );
+            })}
           </tbody>
         </table>
         {visibleRows.length === 0 && (

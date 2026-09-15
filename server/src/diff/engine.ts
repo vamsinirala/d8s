@@ -39,22 +39,26 @@ export interface OverviewRow {
   /** Of diffFieldCount, how many paths are set in some environments and absent
    *  from others (the rest are values that disagree). */
   missingFieldCount: number | null;
+  /** The paths behind the counts: values that disagree, and paths absent from
+   *  some environments. Sent so the UI can apply ignore rules to the counts
+   *  without another round-trip. Null when the counts are. */
+  valuePaths: string[] | null;
+  missingPaths: string[] | null;
 }
 
-function countDifferingPaths(flattenedList: Record<string, unknown>[]): { differ: number; missing: number } {
+function differingPaths(flattenedList: Record<string, unknown>[]): { value: string[]; missing: string[] } {
   const allPaths = new Set<string>();
   for (const flat of flattenedList) for (const path of Object.keys(flat)) allPaths.add(path);
-  let differ = 0;
-  let missing = 0;
+  const value: string[] = [];
+  const missing: string[] = [];
   for (const path of allPaths) {
     const values = flattenedList.map((flat) => (path in flat ? JSON.stringify(flat[path]) : undefined));
     if (values.some((v) => v !== values[0])) {
-      differ++;
       // Same precedence as buildFieldMatrix: absent anywhere makes it a presence difference.
-      if (values.includes(undefined)) missing++;
+      (values.includes(undefined) ? missing : value).push(path);
     }
   }
-  return { differ, missing };
+  return { value, missing };
 }
 
 /**
@@ -123,12 +127,9 @@ export function buildOverview(inputs: EnvResourceInput[]): OverviewRow[] {
     }
     const missingEnvIds = allEnvIds.filter((id) => !presentEnvIds.includes(id));
 
-    let diffFieldCount: number | null = null;
-    let missingFieldCount: number | null = null;
+    let paths: { value: string[]; missing: string[] } | null = null;
     if (presentEnvIds.length >= 2) {
-      const counts = countDifferingPaths(presentEnvIds.map((id) => flatten(envMap.get(id))));
-      diffFieldCount = counts.differ;
-      missingFieldCount = counts.missing;
+      paths = differingPaths(presentEnvIds.map((id) => flatten(envMap.get(id))));
     }
 
     rows.push({
@@ -136,8 +137,10 @@ export function buildOverview(inputs: EnvResourceInput[]): OverviewRow[] {
       namesByEnv,
       presentEnvIds,
       missingEnvIds,
-      diffFieldCount,
-      missingFieldCount,
+      diffFieldCount: paths ? paths.value.length + paths.missing.length : null,
+      missingFieldCount: paths ? paths.missing.length : null,
+      valuePaths: paths?.value ?? null,
+      missingPaths: paths?.missing ?? null,
     });
   }
 

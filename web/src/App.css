@@ -587,9 +587,13 @@ tbody tr:last-child td {
   margin-bottom: 0.5rem;
 }
 
+/* overflow: clip (not auto) keeps the rounded corners without making this a
+ * scroll container — a scroll container would capture position: sticky and the
+ * header could never dock to the page. The table is fixed-layout, so nothing
+ * needs to scroll horizontally. */
 .overview-table-scroll {
   max-width: 100%;
-  overflow-x: auto;
+  overflow: clip;
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
 }
@@ -705,26 +709,34 @@ td.missing {
 
 .field-matrix-scroll {
   max-width: 100%;
-  overflow-x: auto;
+  overflow: clip;
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
   background: var(--surface);
 }
 
+/* Fixed layout + wrapping: long values (certificates, JSON blobs, ConfigMap
+ * files) wrap inside their column instead of forcing a horizontal scroll. */
 .field-table {
-  table-layout: auto;
-  min-width: 100%;
+  table-layout: fixed;
+  width: 100%;
 }
 
 .field-table th,
 .field-table td {
-  white-space: nowrap;
+  white-space: normal;
   vertical-align: top;
 }
 
 .field-table th:first-child {
-  min-width: 220px;
-  max-width: 360px;
+  width: 22%;
+}
+
+/* pre-wrap keeps multi-line values (YAML, certificates) readable; overflow-wrap
+ * only breaks inside a word when a token alone is wider than the column. */
+.field-table td code {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
 
 .field-table td.path-cell {
@@ -1056,4 +1068,160 @@ li.dangling {
   font-size: 0.78rem;
   font-weight: 600;
   white-space: nowrap;
+}
+
+/* ---------- Docked headers ---------- */
+
+.overview-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  background: var(--surface);
+  box-shadow: inset 0 -1px 0 var(--border);
+}
+
+/* The field table's header docks directly beneath the overview header. */
+.field-table thead th {
+  position: sticky;
+  top: var(--overview-head-h, 2.6rem);
+  z-index: 2;
+  background: var(--neutral-soft);
+  box-shadow: inset 0 -1px 0 var(--border);
+}
+
+/* ---------- Top-level comparison filter ---------- */
+
+.overview-filter-bar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.75rem 1rem;
+  margin-bottom: 1rem;
+}
+
+.overview-filter-bar .filter-row {
+  margin-bottom: 0;
+}
+
+.show-ignored-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+}
+
+/* ---------- Ignore controls ---------- */
+
+.row-actions {
+  display: inline-flex;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+
+.ignore-btn {
+  background: transparent;
+  color: var(--text-secondary);
+  border: 1px solid var(--border);
+  font-size: 0.72rem;
+  font-weight: 500;
+  padding: 0.15rem 0.5rem;
+  border-radius: var(--radius-pill);
+  white-space: nowrap;
+}
+
+.ignore-btn:hover:not(:disabled) {
+  background: var(--neutral-soft);
+  color: var(--text);
+}
+
+/* Revealed on hover/focus so a long table isn't a wall of buttons, but always
+ * visible on touch screens, which have no hover. */
+@media (hover: hover) {
+  .overview-row .ignore-btn,
+  .field-table tbody tr .ignore-btn {
+    opacity: 0;
+  }
+  .overview-row:hover .ignore-btn,
+  .overview-row:focus-within .ignore-btn,
+  .field-table tbody tr:hover .ignore-btn,
+  .field-table tbody tr:focus-within .ignore-btn,
+  tr.is-ignored .ignore-btn {
+    opacity: 1;
+  }
+}
+
+tr.is-ignored > td {
+  opacity: 0.55;
+}
+
+tr.is-ignored > td:last-child {
+  opacity: 1;
+}
+
+.ignored-badge {
+  background: var(--neutral-soft);
+  color: var(--neutral-text);
+  padding: 0.2rem 0.6rem;
+  border-radius: var(--radius-pill);
+  font-size: 0.78rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.field-table th.actions-col,
+.field-table td.actions-col {
+  width: 7.5rem;
+}
+
+.ignore-manager {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: 0.75rem 1rem;
+  margin-bottom: 1rem;
+  background: #fbfbfd;
+}
+
+.ignore-manager summary {
+  cursor: pointer;
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+.ignore-list {
+  list-style: none;
+  padding: 0;
+  margin: 0.75rem 0 0;
+  display: grid;
+  gap: 0.4rem;
+}
+
+.ignore-list li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  font-size: 0.8rem;
+}
+
+.ignore-list code {
+  font-family: var(--font-mono);
+  overflow-wrap: anywhere;
+}
+
+.ignore-manager-actions {
+  margin-top: 0.75rem;
+}
+
+/* Accessible name for screen readers without taking up visual space. */
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
 }

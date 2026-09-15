@@ -10,6 +10,7 @@ import {
   type ResourceKind,
 } from "./api";
 import { exportEverything } from "./excel";
+import { useIgnores } from "./ignores";
 
 /**
  * Compare a local Helm chart against a live environment.
@@ -58,6 +59,7 @@ export function HelmView({
 
   const [exportingAll, setExportingAll] = useState(false);
   const [exportError, setExportError] = useState<string | null>(null);
+  const { rules: ignoreRules } = useIgnores();
 
   const [expanded, setExpanded] = useState<{ kind: ResourceKind; canonicalName: string } | null>(null);
   const [fieldMatrix, setFieldMatrix] = useState<ResourceCompareResponse | null>(null);
@@ -180,6 +182,7 @@ export function HelmView({
         kinds: data.kinds,
         differences: data.differences,
         subject: data.chart.name,
+        ignores: ignoreRules,
       });
     } catch (e) {
       setExportError(String(e));

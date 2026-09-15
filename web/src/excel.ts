@@ -3,10 +3,12 @@ import type { Row } from "write-excel-file/browser";
 import type {
   DiffKind,
   FieldMatrixRow,
+  IgnoreRule,
   ImageVersionRow,
   OverviewRow,
   ResourceDifferences,
 } from "./api";
+import { effectiveCounts, isPathIgnored, isResourceIgnored } from "./ignores";
 
 /**
  * Excel export for the diff views.
@@ -94,8 +96,25 @@ export async function exportEverything(args: {
   images?: { rows: ImageVersionRow[] } | null;
   /** Used in the filename, e.g. the chart name for a Helm comparison. */
   subject?: string;
+  /** Applied to every sheet, and listed on their own sheet for the record. */
+  ignores?: IgnoreRule[];
 }): Promise<void> {
-  const { envs, kinds, differences, images, subject } = args;
+  const { envs, images, subject, ignores = [] } = args;
+
+  // Apply ignore rules up front so every sheet agrees with what's on screen.
+  const kinds: Record<string, OverviewRow[]> = Object.fromEntries(
+    Object.entries(args.kinds).map(([kind, rows]) => [
+      kind,
+      rows.filter((r) => !isResourceIgnored(ignores, kind, r.canonicalName)),
+    ]),
+  );
+  const differences: ResourceDifferences[] = args.differences
+    .filter((d) => !isResourceIgnored(ignores, d.kind, d.resource))
+    .map((d) => ({
+      ...d,
+      rows: d.rows.filter((r) => !isPathIgnored(ignores, d.kind, d.resource, r.path)),
+    }))
+    .filter((d) => d.rows.length > 0);
 
   // --- Summary -------------------------------------------------------------
   const summaryHeader: Row = [
@@ -108,6 +127,8 @@ export async function exportEverything(args: {
   const summaryRows: Row[] = [];
   for (const [kind, rows] of Object.entries(kinds)) {
     for (const r of rows) {
+      const counts = effectiveCounts(ignores, kind, r);
+      const differing = counts ? counts.value + counts.missing : null;
       summaryRows.push([
         { value: KIND_LABELS[kind] ?? kind, align: "left" as const },
         { value: r.canonicalName, align: "left" as const },
@@ -116,15 +137,15 @@ export async function exportEverything(args: {
           align: "left" as const,
         })),
         {
-          value: r.diffFieldCount === null ? "n/a" : String(r.diffFieldCount),
+          value: differing === null ? "n/a" : String(differing),
           align: "left" as const,
           // Flag anything that actually differs so it stands out at a glance.
-          backgroundColor: r.diffFieldCount ? KIND_FILL.value : undefined,
+          backgroundColor: differing ? KIND_FILL.value : undefined,
         },
         {
-          value: r.missingFieldCount === null ? "n/a" : String(r.missingFieldCount),
+          value: counts === null ? "n/a" : String(counts.missing),
           align: "left" as const,
-          backgroundColor: r.missingFieldCount ? KIND_FILL.presence : undefined,
+          backgroundColor: counts?.missing ? KIND_FILL.presence : undefined,
         },
       ]);
     }
@@ -212,6 +233,22 @@ export async function exportEverything(args: {
       name: "Image versions",
       data: [header, ...rows],
       columns: [{ width: 32 }, { width: 32 }, ...envs.map(() => ({ width: 44 })), { width: 16 }],
+    });
+  }
+
+  if (ignores.length > 0) {
+    sheets.push({
+      name: "Ignored",
+      data: [
+        [headerCell("Kind"), headerCell("Resource"), headerCell("Field"), headerCell("Ignored on")],
+        ...ignores.map((rule) => [
+          { value: KIND_LABELS[rule.kind] ?? rule.kind, align: "left" as const },
+          { value: rule.resource ?? "(all)", align: "left" as const },
+          { value: rule.path ?? "(whole resource)", align: "left" as const },
+          { value: new Date(rule.createdAt).toLocaleString(), align: "left" as const },
+        ]),
+      ],
+      columns: [{ width: 22 }, { width: 34 }, { width: 58 }, { width: 22 }],
     });
   }
 

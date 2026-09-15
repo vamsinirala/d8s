@@ -16,6 +16,7 @@ import type {
   FieldCell,
   FieldMatrixRow,
   HelmCompareResponse,
+  IgnoreRule,
   ImageVersionsResponse,
   OverviewResponse,
   ResourceCompareResponse,
@@ -83,7 +84,7 @@ function emptyKinds(): Record<ResourceKind, never[]> {
   };
 }
 
-function buildOverview(ids: string[]): OverviewResponse {
+function baseOverview(ids: string[]): OverviewResponse {
   const [a, b] = [ids[0], ids[1] ?? ids[0]];
   const both = Array.from(new Set([a, b]));
 
@@ -99,6 +100,8 @@ function buildOverview(ids: string[]): OverviewResponse {
           missingEnvIds: [],
           diffFieldCount: 42,
           missingFieldCount: 3,
+          valuePaths: null,
+          missingPaths: null,
         },
         {
           canonicalName: "checkout-api",
@@ -107,6 +110,8 @@ function buildOverview(ids: string[]): OverviewResponse {
           missingEnvIds: [a],
           diffFieldCount: null,
           missingFieldCount: null,
+          valuePaths: null,
+          missingPaths: null,
         },
         {
           canonicalName: "worker-cron",
@@ -115,6 +120,8 @@ function buildOverview(ids: string[]): OverviewResponse {
           missingEnvIds: [],
           diffFieldCount: 0,
           missingFieldCount: 0,
+          valuePaths: null,
+          missingPaths: null,
         },
       ],
       configMaps: [
@@ -125,6 +132,8 @@ function buildOverview(ids: string[]): OverviewResponse {
           missingEnvIds: [],
           diffFieldCount: 1,
           missingFieldCount: 0,
+          valuePaths: null,
+          missingPaths: null,
         },
         {
           canonicalName: "payments-config",
@@ -133,6 +142,8 @@ function buildOverview(ids: string[]): OverviewResponse {
           missingEnvIds: [],
           diffFieldCount: 6,
           missingFieldCount: 2,
+          valuePaths: null,
+          missingPaths: null,
         },
       ],
       services: [
@@ -143,6 +154,8 @@ function buildOverview(ids: string[]): OverviewResponse {
           missingEnvIds: [],
           diffFieldCount: 2,
           missingFieldCount: 0,
+          valuePaths: null,
+          missingPaths: null,
         },
       ],
     },
@@ -163,6 +176,31 @@ function row(path: string, cells: Record<string, FieldCell>): FieldMatrixRow {
   const valuesDisagree = new Set(presentValues).size > 1;
   const diffKind = missingSomewhere ? "presence" : valuesDisagree ? "value" : "identical";
   return { path, cells, diffKind, differs: diffKind !== "identical" };
+}
+
+/**
+ * Fills each overview row's counts and paths from the rows its drill-down
+ * returns, so the demo's pills, drill-downs and ignore rules always agree.
+ */
+function attachPaths<T extends { kinds: Record<string, OverviewResponse["kinds"][ResourceKind]> }>(
+  response: T,
+  rowsFor: (canonicalName: string) => FieldMatrixRow[],
+): T {
+  for (const rows of Object.values(response.kinds)) {
+    for (const row of rows) {
+      if (row.diffFieldCount === null) continue;
+      const fields = rowsFor(row.canonicalName);
+      row.valuePaths = fields.filter((f) => f.diffKind === "value").map((f) => f.path);
+      row.missingPaths = fields.filter((f) => f.diffKind === "presence").map((f) => f.path);
+      row.diffFieldCount = row.valuePaths.length + row.missingPaths.length;
+      row.missingFieldCount = row.missingPaths.length;
+    }
+  }
+  return response;
+}
+
+function buildOverview(ids: string[]): OverviewResponse {
+  return attachPaths(baseOverview(ids), (name) => buildResourceCompare(ids, name).rows);
 }
 
 function buildResourceCompare(ids: string[], canonicalName: string): ResourceCompareResponse {
@@ -190,10 +228,44 @@ function buildResourceCompare(ids: string[], canonicalName: string): ResourceCom
           row(`${p}.livenessProbe.periodSeconds`, { [a]: cell(10), [b]: cell(10) }),
           row(`${p}.imagePullPolicy`, { [a]: cell("IfNotPresent"), [b]: cell("IfNotPresent") }),
         ]
-      : [
-          row("metadata.name", { [a]: cell(canonicalName), [b]: cell(canonicalName) }),
-          row("spec.replicas", { [a]: cell(1), [b]: cell(1) }),
-        ];
+      : canonicalName === "payments-config"
+        ? [
+            row("metadata.name", { [a]: cell("payments-config"), [b]: cell("payments-config") }),
+            row("data.LOG_LEVEL", { [a]: cell("debug"), [b]: cell("warn") }),
+            row("data.FEATURE_NEW_CHECKOUT", { [a]: cell("true"), [b]: cell("false") }),
+            row("data.PAYMENT_TIMEOUT_MS", { [a]: cell("30000"), [b]: cell("10000") }),
+            row("data.application.yaml", {
+              [a]: cell(
+                "server:\n  port: 8080\n  shutdown: graceful\nspring:\n  datasource:\n    url: jdbc:postgresql://payments-db.payments-dev.svc.cluster.local:5432/payments?sslmode=disable&connectTimeout=10&socketTimeout=30&applicationName=payments-api\n    hikari:\n      maximum-pool-size: 5",
+              ),
+              [b]: cell(
+                "server:\n  port: 8080\n  shutdown: graceful\nspring:\n  datasource:\n    url: jdbc:postgresql://payments-db.payments-prod.svc.cluster.local:5432/payments?sslmode=require&connectTimeout=5&socketTimeout=15&applicationName=payments-api\n    hikari:\n      maximum-pool-size: 40",
+              ),
+            }),
+            row("data.SENTRY_DSN", { [a]: absent, [b]: cell("https://public@sentry.example.com/42") }),
+            row("data.DEBUG_TOOLBAR", { [a]: cell("enabled"), [b]: absent }),
+          ]
+        : canonicalName === "kube-root-ca.crt"
+          ? [
+              row("metadata.name", { [a]: cell("kube-root-ca.crt"), [b]: cell("kube-root-ca.crt") }),
+              row("data.ca.crt", {
+                [a]: cell("-----BEGIN CERTIFICATE-----\nMIIC/jCCAeagAwIBAgIBADANBgkqhkiG9w0BAQsFADAVMRMwEQYDVQQDEwprdWJlcm5ldGVzMB4XDTI2MDEwMTAwMDAwMFoXDTM2MDEwMTAwMDAwMFowFTETMBEGA1UEAxMKa3ViZXJuZXRlczCCASIwDQYJKoZIhvcNAQEBBQADggEPADCCAQoCggEBAMdevA\n-----END CERTIFICATE-----"),
+                [b]: cell("-----BEGIN CERTIFICATE-----\nMIIC/jCCAeagAwIBAgIBADANBgkqhkiG9w0BAQsFADAVMRMwEQYDVQQDEwprdWJlcm5ldGVzMB4XDTI2MDEwMTAwMDAwMFoXDTM2MDEwMTAwMDAwMFowFTETMBEGA1UEAxMKa3ViZXJuZXRlczCCASIwDQYJKoZIhvcNAQEBBQADggEPADCCAQoCggEBAMprodB\n-----END CERTIFICATE-----"),
+              }),
+            ]
+          : canonicalName === "payments-api-svc"
+            ? [
+                row("metadata.name", { [a]: cell("payments-api-svc"), [b]: cell("payments-api-svc") }),
+                row("spec.type", { [a]: cell("ClusterIP"), [b]: cell("LoadBalancer") }),
+                row("metadata.annotations.service.beta.kubernetes.io/aws-load-balancer-type", {
+                  [a]: absent,
+                  [b]: cell("nlb"),
+                }),
+              ]
+            : [
+                row("metadata.name", { [a]: cell(canonicalName), [b]: cell(canonicalName) }),
+                row("spec.replicas", { [a]: cell(1), [b]: cell(1) }),
+              ];
 
   return {
     envs: envStatuses(ids),
@@ -314,7 +386,36 @@ const DEMO_CHART: ChartInfo = {
 
 /** Chart rendered with prod values vs. the live prod namespace: the chart wants 3
  *  replicas and a newer image than what is actually deployed. */
+function helmResourceRows(live: string, canonicalName: string): FieldMatrixRow[] {
+  if (canonicalName === "payments-api") {
+    return [
+      row("metadata.name", { chart: cell("payments-api"), [live]: cell("payments-api") }),
+      // The chart wants 3 replicas and a newer image than what is deployed.
+      row("spec.replicas", { chart: cell(3), [live]: cell(2) }),
+      row("spec.template.spec.containers.api.image", {
+        chart: cell("registry.example.com/payments-api:1.4.2"),
+        [live]: cell("registry.example.com/payments-api:1.3.9"),
+      }),
+      row("spec.template.spec.containers.api.resources.limits.cpu", {
+        chart: cell("500m"),
+        [live]: cell("500m"),
+      }),
+    ];
+  }
+  if (canonicalName === "payments-config") {
+    return [
+      row("metadata.name", { chart: cell("payments-config"), [live]: cell("payments-config") }),
+      row("data.LOG_LEVEL", { chart: cell("info"), [live]: cell("warn") }),
+    ];
+  }
+  return [row("metadata.name", { chart: cell(canonicalName), [live]: cell(canonicalName) })];
+}
+
 function buildHelmCompare(environmentId: string): HelmCompareResponse {
+  return attachPaths(baseHelmCompare(environmentId), (name) => helmResourceRows(environmentId, name));
+}
+
+function baseHelmCompare(environmentId: string): HelmCompareResponse {
   const envLabel = environments.find((e) => e.id === environmentId)?.label ?? "prod";
   const envs = [
     { id: "chart", label: "chart: payments", status: "ok" as const },
@@ -335,6 +436,8 @@ function buildHelmCompare(environmentId: string): HelmCompareResponse {
           missingEnvIds: [],
           diffFieldCount: 2,
           missingFieldCount: 0,
+          valuePaths: null,
+          missingPaths: null,
         },
         {
           canonicalName: "payments-worker",
@@ -343,6 +446,8 @@ function buildHelmCompare(environmentId: string): HelmCompareResponse {
           missingEnvIds: [environmentId],
           diffFieldCount: null,
           missingFieldCount: null,
+          valuePaths: null,
+          missingPaths: null,
         },
       ],
       services: [
@@ -353,6 +458,8 @@ function buildHelmCompare(environmentId: string): HelmCompareResponse {
           missingEnvIds: [],
           diffFieldCount: 0,
           missingFieldCount: 0,
+          valuePaths: null,
+          missingPaths: null,
         },
       ],
       configMaps: [
@@ -363,6 +470,8 @@ function buildHelmCompare(environmentId: string): HelmCompareResponse {
           missingEnvIds: [],
           diffFieldCount: 1,
           missingFieldCount: 0,
+          valuePaths: null,
+          missingPaths: null,
         },
       ],
     },
@@ -387,7 +496,48 @@ function buildDifferences(
   return out;
 }
 
+const IGNORES_KEY = "d8s-demo-ignores";
+
+function loadDemoIgnores(): IgnoreRule[] {
+  try {
+    return JSON.parse(localStorage.getItem(IGNORES_KEY) ?? "[]") as IgnoreRule[];
+  } catch {
+    return [];
+  }
+}
+
+let demoIgnores: IgnoreRule[] = loadDemoIgnores();
+
+function saveDemoIgnores() {
+  try {
+    localStorage.setItem(IGNORES_KEY, JSON.stringify(demoIgnores));
+  } catch {
+    // Storage blocked: rules still work for this page load.
+  }
+}
+
 export const demoApi = {
+  listIgnores: () => delay([...demoIgnores], 100),
+  addIgnore: (input: { kind: string; resource: string | null; path: string | null }) => {
+    const existing = demoIgnores.find(
+      (r) => r.kind === input.kind && r.resource === input.resource && r.path === input.path,
+    );
+    if (existing) return delay(existing, 100);
+    const rule: IgnoreRule = { id: `i${Date.now()}${Math.random().toString(36).slice(2, 6)}`, ...input, createdAt: Date.now() };
+    demoIgnores = [...demoIgnores, rule];
+    saveDemoIgnores();
+    return delay(rule, 100);
+  },
+  removeIgnore: (id: string) => {
+    demoIgnores = demoIgnores.filter((r) => r.id !== id);
+    saveDemoIgnores();
+    return delay(undefined as void, 100);
+  },
+  clearIgnores: () => {
+    demoIgnores = [];
+    saveDemoIgnores();
+    return delay(undefined as void, 100);
+  },
   refreshCache: (_environmentIds: string[]) => {
     demoFetchedAt = Date.now();
     return delay(undefined as void, 200);
@@ -418,22 +568,7 @@ export const demoApi = {
       },
     ];
     const live = body.environmentId;
-    const rows =
-      body.canonicalName === "payments-api"
-        ? [
-            row("metadata.name", { chart: cell("payments-api"), [live]: cell("payments-api") }),
-            // The chart wants 3 replicas and a newer image than what is deployed.
-            row("spec.replicas", { chart: cell(3), [live]: cell(2) }),
-            row("spec.template.spec.containers.api.image", {
-              chart: cell("registry.example.com/payments-api:1.4.2"),
-              [live]: cell("registry.example.com/payments-api:1.3.9"),
-            }),
-            row("spec.template.spec.containers.api.resources.limits.cpu", {
-              chart: cell("500m"),
-              [live]: cell("500m"),
-            }),
-          ]
-        : [row("metadata.name", { chart: cell(body.canonicalName), [live]: cell(body.canonicalName) })];
+    const rows = helmResourceRows(live, body.canonicalName);
     return delay({ envs, rows, resources: { chart: {}, [live]: {} } }, 400);
   },
   listContexts: () => delay(CONTEXTS, 150),
@@ -472,18 +607,7 @@ export const demoApi = {
     return delay(
       {
         ...compare,
-        differences: buildDifferences(compare.kinds, (name) => {
-          const live = body.environmentId;
-          return name === "payments-api"
-            ? [
-                row("spec.replicas", { chart: cell(3), [live]: cell(2) }),
-                row("spec.template.spec.containers.api.image", {
-                  chart: cell("registry.example.com/payments-api:1.4.2"),
-                  [live]: cell("registry.example.com/payments-api:1.3.9"),
-                }),
-              ]
-            : [];
-        }),
+        differences: buildDifferences(compare.kinds, (name) => helmResourceRows(body.environmentId, name)),
       },
       800,
     );

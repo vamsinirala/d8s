@@ -29,6 +29,7 @@ import {
 } from "./diff/engine.js";
 import { fetchNamespaceSnapshot } from "./k8s/fetch.js";
 import { invalidate } from "./k8s/cache.js";
+import { addIgnore, clearIgnores, loadIgnores, removeIgnore } from "./config/ignores.js";
 import {
   resolveForwardReferences,
   resolveReverseReferences,
@@ -79,6 +80,39 @@ app.delete<{ Params: { id: string } }>(
     return reply.code(204).send();
   },
 );
+
+app.get("/api/ignores", async () => loadIgnores());
+
+app.post<{ Body: { kind: string; resource: string | null; path: string | null } }>(
+  "/api/ignores",
+  async (req, reply) => {
+    const { kind, resource = null, path = null } = req.body ?? ({} as never);
+    if (!RESOURCE_KINDS.includes(kind as ResourceKind)) {
+      return reply.code(400).send({ error: `invalid kind: ${kind}` });
+    }
+    if (resource !== null && typeof resource !== "string") {
+      return reply.code(400).send({ error: "resource must be a string or null" });
+    }
+    if (path !== null && typeof path !== "string") {
+      return reply.code(400).send({ error: "path must be a string or null" });
+    }
+    // "Every resource of this kind, entirely" would silently hide a whole kind.
+    if (resource === null && path === null) {
+      return reply.code(400).send({ error: "a rule needs a resource, a path, or both" });
+    }
+    return addIgnore({ kind, resource, path });
+  },
+);
+
+app.delete("/api/ignores", async (_req, reply) => {
+  await clearIgnores();
+  return reply.code(204).send();
+});
+
+app.delete<{ Params: { id: string } }>("/api/ignores/:id", async (req, reply) => {
+  await removeIgnore(req.params.id);
+  return reply.code(204).send();
+});
 
 app.get<{ Params: { id: string } }>(
   "/api/environments/:id/snapshot",
